@@ -605,7 +605,8 @@ component MonthWidget inherits WidgetCard {
         for r[i] in Weather.month-rows: Rectangle {
             height: 40px;
             border-radius: 12px;
-            background: r.flag ? MaterialPalette.tertiary_container : mod(i, 2) == 0 ? MaterialPalette.surface_container_low : transparent;
+            // A faint tertiary tint: the container role can be a bright pastel in dark mode.
+            background: r.flag ? MaterialPalette.tertiary.transparentize(0.86) : mod(i, 2) == 0 ? MaterialPalette.surface_container_low : transparent;
             HorizontalLayout {
                 padding-left: 10px;
                 padding-right: 10px;
@@ -615,7 +616,7 @@ component MonthWidget inherits WidgetCard {
                 T { text: r.lo; muted: true; width: 40px; }
                 if r.has-icon: VerticalLayout { alignment: center; Icon { name: r.icon; size: 18px; tint: r.tint.color; } }
                 T { text: r.amount; role: "label-small"; horizontal-stretch: 1; }
-                if r.flag: VerticalLayout { alignment: center; Pill { text: "First snow"; fill: MaterialPalette.tertiary; ink: MaterialPalette.on_tertiary; } }
+                if r.flag: VerticalLayout { alignment: center; Pill { text: "First snow"; fill: MaterialPalette.tertiary.transparentize(0.75); ink: MaterialPalette.tertiary; icon: "ac_unit"; has-icon: true; } }
             }
         }
     }
