@@ -1,0 +1,574 @@
+import { MaterialPalette, MaterialTypography, StateLayerArea, PopupMenu, MenuItem } from "@material";
+import { Shapes, Tint, Ui, IconStore } from "globals.slint";
+
+// M3 Expressive motion: a fast spatial spring that overshoots slightly.
+export global Motion {
+    out property <easing> spring: cubic-bezier(0.42, 1.67, 0.21, 0.9);
+    out property <easing> emphasized: cubic-bezier(0.2, 0, 0, 1);
+}
+
+// Text on the M3 type scale.
+export component T inherits Text {
+    in property <string> role: "body-medium";
+    in property <bool> strong;
+    in property <bool> muted;
+    color: muted ? MaterialPalette.on_surface_variant : MaterialPalette.on_surface;
+    overflow: elide;
+    vertical-alignment: center;
+    font-size: role == "display-large" ? 57px : role == "display-medium" ? 45px : role == "display-small" ? 36px
+        : role == "headline-large" ? 32px : role == "headline-medium" ? 28px : role == "headline-small" ? 24px
+        : role == "title-large" ? 22px : role == "title-medium" ? 16px : role == "title-small" ? 14px
+        : role == "label-large" ? 14px : role == "label-medium" ? 12px : role == "label-small" ? 11px
+        : role == "body-large" ? 16px : role == "body-small" ? 12px : 14px;
+    font-weight: strong ? 700 : (role == "title-medium" || role == "title-small" || role == "label-large"
+        || role == "label-medium" || role == "label-small") ? 500 : 400;
+}
+
+// Material Symbols icon by name ("cloud", "cloud-fill"…), tinted in Rust.
+export component Icon inherits Image {
+    in property <length> size: 24px;
+    in property <string> name;
+    in property <color> tint: MaterialPalette.on_surface;
+    width: size;
+    height: size;
+    source: IconStore.get(root.name, root.tint);
+    image-fit: contain;
+    image-rendering: smooth;
+}
+
+// Press feedback shared by every clickable element: pointer cursor, M3 state
+// layer, and (per the "Press animation" setting) a ripple that always runs to
+// completion. Place it as the last child of a Rectangle; it fills the parent.
+export component PressFx inherits Rectangle {
+    in property <length> radius;
+    in property <color> ink: MaterialPalette.on_surface;
+    in property <bool> enabled: true;
+    out property <bool> pressed: root.held && root.enabled;
+    out property <bool> has-hover: ta.has-hover && root.enabled;
+    out property <length> mouse-x: ta.mouse-x;
+    callback clicked();
+    callback double-clicked();
+    width: 100%;
+    height: 100%;
+    border-radius: root.radius;
+    clip: true;
+    background: root.ink.with-alpha(!root.enabled ? 0 : root.held ? 0.10 : ta.has-hover ? 0.08 : 0);
+    animate background { duration: 120ms; }
+
+    property <bool> ripple-on: Ui.press-style != "morph";
+    property <length> rx;
+    property <length> ry;
+    property <bool> grow;
+    property <bool> arm;
+    property <bool> hold;
+    // Our own pressed flag: a parent Flickable can take over a drag without this
+    // TouchArea ever seeing the release, which left `pressed` stuck on.
+    property <bool> held;
+    property <length> reach: max(root.width, root.height) * 2.4;
+
+    if root.ripple-on: Rectangle {
+        x: root.rx - self.width / 2;
+        y: root.ry - self.height / 2;
+        width: root.grow ? root.reach : 0;
+        height: self.width;
+        border-radius: self.width / 2;
+        background: root.ink;
+        opacity: root.grow && (root.held || root.hold) ? 0.16 : 0;
+        animate width { duration: root.grow ? 550ms : 0ms; easing: cubic-bezier(0.2, 0, 0, 1); }
+        animate opacity { duration: root.grow ? 380ms : 0ms; }
+    }
+    // Start the ripple one frame after resetting it, so every press animates from zero.
+    Timer {
+        interval: 16ms;
+        running: root.arm;
+        triggered => { root.arm = false; root.grow = true; }
+    }
+    // Keep a quick click's ripple visible long enough to read.
+    Timer {
+        interval: 220ms;
+        running: root.hold;
+        triggered => { root.hold = false; }
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? pointer : default;
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                root.rx = self.mouse-x;
+                root.ry = self.mouse-y;
+                root.grow = false;
+                root.arm = true;
+                root.hold = true;
+                root.held = true;
+            }
+            if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
+                root.held = false;
+            }
+        }
+        // Moving like a drag (e.g. scrolling a list) is not a press.
+        moved => {
+            if root.held && abs(self.mouse-x - root.rx) + abs(self.mouse-y - root.ry) > 6px {
+                root.held = false;
+            }
+        }
+        changed has-hover => { if !self.has-hover { root.held = false; } }
+        changed pressed => { if !self.pressed { root.held = false; } }
+        clicked => { root.clicked(); }
+        double-clicked => { root.double-clicked(); }
+    }
+}
+
+// Whether presses should morph shapes (M3 Expressive) — on for "morph" and "both".
+export global Feel {
+    out property <bool> morph: Ui.press-style != "ripple";
+}
+
+// Common M3 button: filled | tonal | text | outlined. Corners morph on press.
+export component Btn inherits Rectangle {
+    in property <string> text;
+    in property <string> icon;
+    in property <string> kind: "filled";
+    in property <bool> enabled: true;
+    callback clicked();
+    property <bool> has-icon: root.icon != "";
+    property <color> fg: root.kind == "filled" ? MaterialPalette.on_primary
+        : root.kind == "tonal" ? MaterialPalette.on_secondary_container : MaterialPalette.primary;
+    height: 40px;
+    min-width: row.preferred-width;
+    horizontal-stretch: 0;
+    border-radius: Feel.morph && fx.pressed ? 10px : self.height / 2;
+    animate border-radius { duration: 300ms; easing: Motion.spring; }
+    background: root.kind == "filled" ? MaterialPalette.primary : root.kind == "tonal" ? MaterialPalette.secondary_container : transparent;
+    border-width: root.kind == "outlined" ? 1px : 0;
+    border-color: MaterialPalette.outline_variant;
+    opacity: root.enabled ? 1 : 0.38;
+    row := HorizontalLayout {
+        padding-left: root.has-icon ? 16px : 24px;
+        padding-right: 24px;
+        spacing: 8px;
+        alignment: center;
+        if root.has-icon: VerticalLayout { alignment: center; Icon { name: root.icon; size: 18px; tint: root.fg; } }
+        Text { text: root.text; color: root.fg; font-size: 14px; font-weight: 600; vertical-alignment: center; }
+    }
+    fx := PressFx {
+        radius: root.border-radius;
+        ink: root.fg;
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}
+
+// M3 segmented button: outlined pill, selected segment tinted with a check.
+export component Seg inherits Rectangle {
+    in property <[{ text: string, icon: string }]> items;
+    in property <int> current-index;
+    callback index-changed(int);
+    height: 40px;
+    border-radius: 20px;
+    border-width: 1px;
+    border-color: MaterialPalette.outline;
+    clip: true;
+    HorizontalLayout {
+        for it[i] in root.items: Rectangle {
+            horizontal-stretch: 1;
+            min-width: seg-row.preferred-width + 16px;
+            background: i == root.current-index ? MaterialPalette.secondary_container : transparent;
+            animate background { duration: 200ms; }
+            if i > 0: Rectangle { x: 0; width: 1px; background: MaterialPalette.outline; }
+            seg-row := HorizontalLayout {
+                alignment: center;
+                spacing: 6px;
+                if i == root.current-index: VerticalLayout { alignment: center; Icon { name: "check"; size: 18px; tint: MaterialPalette.on_secondary_container; } }
+                if i != root.current-index && it.icon != "": VerticalLayout { alignment: center; Icon { name: it.icon; size: 18px; tint: MaterialPalette.on_surface; } }
+                Text {
+                    text: it.text;
+                    font-size: 14px;
+                    font-weight: 600;
+                    color: i == root.current-index ? MaterialPalette.on_secondary_container : MaterialPalette.on_surface;
+                    vertical-alignment: center;
+                }
+            }
+            PressFx { radius: 0; clicked => { if i != root.current-index { root.index-changed(i); } } }
+        }
+    }
+}
+
+// M3 switch: the thumb grows on press and shows a check when on.
+export component Toggle inherits Rectangle {
+    in property <bool> checked;
+    callback toggled(bool);
+    width: 52px;
+    height: 32px;
+    border-radius: 16px;
+    background: root.checked ? MaterialPalette.primary : MaterialPalette.surface_container_highest;
+    border-width: root.checked ? 0 : 2px;
+    border-color: MaterialPalette.outline;
+    animate background { duration: 200ms; }
+    thumb := Rectangle {
+        width: fx.pressed ? 28px : root.checked ? 24px : 16px;
+        height: self.width;
+        border-radius: self.width / 2;
+        x: root.checked ? root.width - self.width - (root.height - self.height) / 2 : (root.height - self.height) / 2;
+        y: (root.height - self.height) / 2;
+        background: root.checked ? MaterialPalette.on_primary : MaterialPalette.outline;
+        animate x, width { duration: 300ms; easing: Motion.spring; }
+        if root.checked: Icon { name: "check"; size: 16px; tint: MaterialPalette.on_primary_container; }
+    }
+    fx := PressFx { radius: 16px; clicked => { root.toggled(!root.checked); } }
+}
+
+// M3 filter chip.
+export component Chip inherits Rectangle {
+    in property <string> text;
+    in property <bool> checked;
+    callback toggled(bool);
+    height: 32px;
+    min-width: chip-row.preferred-width;
+    border-radius: Feel.morph && fx.pressed ? 16px : 8px;
+    animate border-radius { duration: 250ms; easing: Motion.spring; }
+    background: root.checked ? MaterialPalette.secondary_container : transparent;
+    border-width: root.checked ? 0 : 1px;
+    border-color: MaterialPalette.outline;
+    chip-row := HorizontalLayout {
+        padding-left: root.checked ? 8px : 16px;
+        padding-right: 16px;
+        spacing: 6px;
+        if root.checked: VerticalLayout { alignment: center; Icon { name: "check"; size: 18px; tint: MaterialPalette.on_secondary_container; } }
+        Text { text: root.text; font-size: 14px; font-weight: 500; color: root.checked ? MaterialPalette.on_secondary_container : MaterialPalette.on_surface_variant; vertical-alignment: center; }
+    }
+    fx := PressFx { radius: root.border-radius; clicked => { root.toggled(!root.checked); } }
+}
+
+// Checkbox.
+export component CheckMark inherits Rectangle {
+    in-out property <bool> checked;
+    width: 40px;
+    height: 40px;
+    Rectangle {
+        width: 18px;
+        height: 18px;
+        border-radius: 2px;
+        background: root.checked ? MaterialPalette.primary : transparent;
+        border-width: root.checked ? 0 : 2px;
+        border-color: MaterialPalette.on_surface_variant;
+        if root.checked: Icon { name: "check"; size: 16px; tint: MaterialPalette.on_primary; }
+    }
+    PressFx { radius: 20px; clicked => { root.checked = !root.checked; } }
+}
+
+// Clickable list row (search results, etc.).
+export component ListRow inherits Rectangle {
+    in property <string> title;
+    in property <string> subtitle;
+    in property <string> icon;
+    callback clicked();
+    height: 64px;
+    border-radius: Feel.morph && fx.pressed ? 20px : 12px;
+    animate border-radius { duration: 250ms; easing: Motion.spring; }
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 14px;
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 40px;
+                height: 40px;
+                border-radius: 20px;
+                background: MaterialPalette.secondary_container;
+                Icon { name: root.icon; size: 22px; tint: MaterialPalette.on_secondary_container; }
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 1;
+            T { text: root.title; role: "body-large"; }
+            if root.subtitle != "": T { text: root.subtitle; role: "body-small"; muted: true; }
+        }
+    }
+    fx := PressFx { radius: root.border-radius; clicked => { root.clicked(); } }
+}
+
+// An M3 Expressive shape (cookie, sunny, burst, flower…) filled with a color,
+// rotating gently into place when it appears.
+export component Shape inherits Rectangle {
+    in property <string> name: "sunny";
+    in property <color> fill: MaterialPalette.primary_container;
+    in property <length> size: 56px;
+    in property <angle> turn: 0deg;
+    width: size;
+    height: size;
+    p := Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 100;
+        viewbox-height: 100;
+        commands: Shapes.path(root.name);
+        fill: root.fill;
+        stroke-width: 0;
+    }
+    @children
+}
+
+// Rounded container on an M3 surface role.
+export component Surface inherits Rectangle {
+    in property <length> radius: 28px;
+    border-radius: radius;
+    background: MaterialPalette.surface_container;
+    clip: true;
+}
+
+// A home-screen widget: filled card with an icon + title header.
+export component WidgetCard inherits Rectangle {
+    in property <string> title;
+    in property <string> icon;
+    border-radius: 24px;
+    background: MaterialPalette.surface_container_highest;
+    VerticalLayout {
+        padding: 16px;
+        spacing: 12px;
+        HorizontalLayout {
+            spacing: 8px;
+            Icon { name: root.icon; size: 20px; tint: MaterialPalette.primary; }
+            T { text: root.title; role: "title-small"; strong: true; muted: true; }
+        }
+        @children
+    }
+}
+
+// Small rounded label.
+export component Pill inherits Rectangle {
+    in property <string> text;
+    in property <color> fill: MaterialPalette.secondary_container;
+    in property <color> ink: MaterialPalette.on_secondary_container;
+    in property <string> icon;
+    in property <bool> has-icon;
+    border-radius: 8px;
+    background: fill;
+    height: 24px;
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 4px;
+        alignment: center;
+        if has-icon: VerticalLayout { alignment: center; Icon { name: root.icon; size: 16px; tint: root.ink; } }
+        Text { text: root.text; color: root.ink; font-size: 12px; font-weight: 700; vertical-alignment: center; }
+    }
+}
+
+// Tile with a tinted icon badge, label and value (details, hour/day info).
+export component InfoBlock inherits Rectangle {
+    in property <string> icon;
+    in property <string> label;
+    in property <string> value;
+    in property <string> sub;
+    in property <Tint> tint;
+    in property <color> value-color: MaterialPalette.on_surface;
+    in property <bool> clickable;
+    in property <color> fill: MaterialPalette.surface_container_low;
+    callback clicked();
+    border-radius: root.clickable && Feel.morph && fx.pressed ? 28px : 18px;
+    background: fill;
+    min-height: 92px;
+    animate border-radius { duration: 300ms; easing: Motion.spring; }
+    VerticalLayout {
+        padding: 12px;
+        spacing: 4px;
+        Rectangle {
+            width: 36px;
+            height: 36px;
+            border-radius: 12px;
+            background: root.tint.container;
+            Icon { name: root.icon; size: 20px; tint: root.tint.on-container; }
+        }
+        HorizontalLayout {
+            T { text: root.label; role: "label-medium"; muted: true; }
+            if root.clickable: Icon { name: "chevron_right"; size: 16px; tint: MaterialPalette.on_surface_variant; }
+        }
+        T { text: root.value; role: "title-medium"; color: root.value-color; wrap: word-wrap; }
+        if root.sub != "": T { text: root.sub; role: "label-small"; muted: true; }
+    }
+    fx := PressFx { radius: root.border-radius; enabled: root.clickable; clicked => { root.clicked(); } }
+}
+
+// Horizontal meter.
+export component Meter inherits Rectangle {
+    in property <float> pct;
+    in property <color> fill: MaterialPalette.primary;
+    height: 12px;
+    border-radius: 6px;
+    background: MaterialPalette.surface_container_low;
+    Rectangle {
+        x: 0;
+        width: max(parent.height, parent.width * clamp(root.pct, 0, 1));
+        border-radius: 6px;
+        background: root.fill;
+        animate width { duration: 600ms; easing: Motion.spring; }
+    }
+}
+
+// Icon button with M3 state layer, optionally toggled (shape morphs round → square-ish).
+export component ToolButton inherits Rectangle {
+    in property <string> icon;
+    in property <bool> selected;
+    in property <bool> filled;
+    in property <length> size: 48px;
+    in property <string> tip;
+    callback clicked();
+    width: filled ? size * 1.3 : size;
+    height: size;
+    border-radius: root.selected || (Feel.morph && fx.pressed) ? 14px : self.height / 2;
+    background: filled ? (selected ? MaterialPalette.primary : MaterialPalette.primary_container)
+        : selected ? MaterialPalette.secondary_container : transparent;
+    animate border-radius { duration: 350ms; easing: Motion.spring; }
+    animate background { duration: 150ms; }
+    property <color> fg: root.filled ? (root.selected ? MaterialPalette.on_primary : MaterialPalette.on_primary_container)
+        : root.selected ? MaterialPalette.on_secondary_container : MaterialPalette.on_surface_variant;
+    Icon { name: root.icon; tint: root.fg; }
+    fx := PressFx { radius: root.border-radius; ink: root.fg; clicked => { root.clicked(); } }
+}
+
+// Connected button group segment (M3 Expressive): pressed/selected segments get rounder.
+export component GroupButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> selected;
+    in property <bool> first;
+    in property <bool> last;
+    callback clicked();
+    height: 36px;
+    min-width: max(48px, label.preferred-width + 28px);
+    property <length> outer: self.height / 2;
+    property <length> inner: (Feel.morph && fx.pressed) || selected ? self.height / 2 : 6px;
+    border-top-left-radius: first ? outer : inner;
+    border-bottom-left-radius: first ? outer : inner;
+    border-top-right-radius: last ? outer : inner;
+    border-bottom-right-radius: last ? outer : inner;
+    background: selected ? MaterialPalette.secondary : MaterialPalette.secondary_container;
+    animate border-top-left-radius, border-bottom-left-radius, border-top-right-radius, border-bottom-right-radius { duration: 300ms; easing: Motion.spring; }
+    animate background { duration: 150ms; }
+    label := Text {
+        text: root.text;
+        font-size: 14px;
+        font-weight: 600;
+        color: root.selected ? MaterialPalette.on_secondary : MaterialPalette.on_secondary_container;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    fx := PressFx { radius: min(root.border-top-left-radius, root.border-top-right-radius); clicked => { root.clicked(); } }
+}
+
+// Modal scrim + centered surface for dialogs.
+export component DialogFrame inherits Rectangle {
+    in property <string> title;
+    in property <string> icon;
+    in property <bool> has-icon: true;
+    in property <length> card-width: 560px;
+    in-out property <bool> open;
+    in property <bool> dismissible: true;
+    callback closed();
+    visible: open || scrim.opacity > 0;
+    scrim := Rectangle {
+        background: #000;
+        opacity: root.open ? 0.4 : 0;
+        animate opacity { duration: 220ms; }
+        TouchArea {
+            clicked => {
+                if root.dismissible { root.open = false; root.closed(); }
+            }
+        }
+    }
+    card := Rectangle {
+        width: min(root.card-width, root.width - 32px);
+        height: min(body.preferred-height, root.height - 64px);
+        border-radius: 28px;
+        background: MaterialPalette.surface_container_high;
+        drop-shadow-blur: 24px;
+        drop-shadow-color: #00000055;
+        drop-shadow-offset-y: 8px;
+        opacity: root.open ? 1 : 0;
+        y: (root.height - self.height) / 2 + (root.open ? 0 : 24px);
+        animate opacity { duration: 200ms; }
+        animate y { duration: 420ms; easing: Motion.spring; }
+        TouchArea { }
+        body := VerticalLayout {
+            padding: 24px;
+            spacing: 16px;
+            HorizontalLayout {
+                spacing: 12px;
+                if root.has-icon: Icon { name: root.icon; size: 26px; tint: MaterialPalette.primary; }
+                T { text: root.title; role: "headline-small"; horizontal-stretch: 1; }
+                if root.dismissible: ToolButton {
+                    icon: "close";
+                    size: 40px;
+                    clicked => { root.open = false; root.closed(); }
+                }
+            }
+            @children
+        }
+    }
+}
+
+// Outlined select field showing the current value; opens an M3 menu.
+export component Select inherits Rectangle {
+    in property <string> label;
+    in property <[MenuItem]> items;
+    in property <int> current-index: -1;
+    in property <string> icon;
+    in property <bool> has-icon;
+    callback selected(int);
+    height: 56px;
+    border-radius: 12px;
+    background: MaterialPalette.surface_container_highest;
+    border-width: fx.has-hover ? 2px : 0;
+    border-color: MaterialPalette.primary;
+    VerticalLayout {
+        padding-left: 16px;
+        padding-right: 12px;
+        padding-top: 8px;
+        padding-bottom: 8px;
+        HorizontalLayout {
+            spacing: 12px;
+            if root.has-icon: VerticalLayout { alignment: center; Icon { name: root.icon; size: 22px; tint: MaterialPalette.on_surface_variant; } }
+            VerticalLayout {
+                horizontal-stretch: 1;
+                alignment: center;
+                Text { text: root.label; font-size: 12px; color: MaterialPalette.primary; }
+                Text {
+                    text: root.current-index >= 0 && root.current-index < root.items.length ? root.items[root.current-index].text : "Select…";
+                    font-size: 16px;
+                    color: MaterialPalette.on_surface;
+                    overflow: elide;
+                }
+            }
+            VerticalLayout { alignment: center; Icon { name: "arrow_drop_down"; tint: MaterialPalette.on_surface_variant; } }
+        }
+    }
+    fx := PressFx { radius: root.border-radius; clicked => { menu.show(); } }
+    menu := PopupMenu {
+        x: 0;
+        y: root.height;
+        width: root.width;
+        items: root.items;
+        activated(i) => { root.selected(i); }
+    }
+}
+
+// Horizontal strip that also scrolls with a vertical mouse wheel; at either end
+// the wheel is handed back so the surrounding page scrolls instead.
+export component HScroll inherits Rectangle {
+    in property <length> content-w;
+    wheel := TouchArea {
+        scroll-event(e) => {
+            let d = abs(e.delta-x) > abs(e.delta-y) ? e.delta-x : e.delta-y;
+            let next = clamp(flick.content-x + d, min(0px, root.width - root.content-w), 0px);
+            if next == flick.content-x { return reject; }
+            flick.content-x = next;
+            accept
+        }
+        flick := Flickable {
+            content-width: root.content-w;
+            content-height: root.height;
+            @children
+        }
+    }
+}

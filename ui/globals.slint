@@ -1,0 +1,445 @@
+import { MenuItem } from "@material";
+// Data shared between Rust and the UI. Rust formats everything for display;
+// Slint only lays it out.
+
+export struct MapTile {
+    img: image,
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    cx: int,
+    cy: int,
+    cw: int,
+    ch: int,
+    opacity: float,
+}
+
+export struct Tint {
+    color: color,
+    container: color,
+    on-container: color,
+}
+
+export struct HourItem {
+    label: string,
+    icon: string,
+    tint: Tint,
+    precip: string,
+    temp: string,
+    lift: float,
+    index: int,
+}
+
+export struct MiniHour {
+    label: string,
+    icon: string,
+    tint: Tint,
+    precip: string,
+    temp: string,
+}
+
+export struct InfoTile {
+    key: string,
+    icon: string,
+    label: string,
+    value: string,
+    sub: string,
+    tint: Tint,
+    value-color: color,
+    has-value-color: bool,
+    clickable: bool,
+}
+
+export struct DayItem {
+    name: string,
+    icon: string,
+    tint: Tint,
+    pop: string,
+    lo: string,
+    hi: string,
+    bar-left: float,
+    bar-width: float,
+    hours: [MiniHour],
+    details: [InfoTile],
+}
+
+export struct AlertItem {
+    title: string,
+    severity: string,
+    until: string,
+    headline: string,
+    description: string,
+    instruction: string,
+    tint: Tint,
+}
+
+export struct KeyValue {
+    key: string,
+    value: string,
+}
+
+export struct Bar {
+    label: string,
+    value: string,
+    pct: float,
+    past: bool,
+    amount: string,
+}
+
+export struct Tip {
+    icon: string,
+    text: string,
+    tint: Tint,
+}
+
+export struct MonthRow {
+    weekday: string,
+    day: string,
+    hi: string,
+    lo: string,
+    icon: string,
+    has-icon: bool,
+    tint: Tint,
+    amount: string,
+    flag: bool,
+}
+
+export struct FrameTick {
+    pct: float,
+    nowcast: bool,
+}
+
+export struct Swatch {
+    id: string,
+    label: string,
+    primary: color,
+    secondary: color,
+    tertiary: color,
+    surface: color,
+    // Pre-rendered swatch circle (preview) and a glyph name for non-preview swatches.
+    icon: image,
+    glyph: string,
+    has-preview: bool,
+}
+
+export struct Choice {
+    id: string,
+    label: string,
+}
+
+export struct WidgetRow {
+    id: string,
+    label: string,
+    enabled: bool,
+}
+
+export struct Toggle {
+    id: string,
+    label: string,
+    on: bool,
+}
+
+export struct PlaceItem {
+    title: string,
+    subtitle: string,
+    index: int,
+}
+
+export struct ChatMsg {
+    user: bool,
+    text: string,
+}
+
+export struct RadarScheme {
+    id: int,
+    name: string,
+    stops: [color],
+}
+
+// ------------------------------------------------------------- map
+
+export global MapBridge {
+    in property <[MapTile]> base-tiles;
+    in property <[MapTile]> radar-tiles;
+    in property <[MapTile]> alert-tiles;
+    in property <[MapTile]> label-tiles;
+    in property <float> offset-x;
+    in property <float> offset-y;
+    in property <bool> has-pin;
+    in property <float> pin-x;
+    in property <float> pin-y;
+    in property <bool> has-aqi;
+    in property <image> aqi-image;
+    in property <float> aqi-x;
+    in property <float> aqi-y;
+    in property <float> aqi-w;
+    in property <float> aqi-h;
+    in property <float> radar-opacity: 0.75;
+    in property <bool> radar-fade;
+    in property <float> radar-progress: -1;
+    callback resized(width: float, height: float);
+    callback pan(dx: float, dy: float);
+    callback zoom(delta: float, x: float, y: float);
+    callback clicked(x: float, y: float);
+    callback context(x: float, y: float);
+    // Context menu actions at the last right-clicked point.
+    callback ctx-set-location();
+    callback ctx-center();
+    callback ctx-copy();
+    callback ctx-open-maps();
+    in property <string> ctx-coords;
+}
+
+// ------------------------------------------------------------- theme & shapes
+
+// Icons are tinted in Rust (the renderer's own `colorize` reads uninitialized GPU
+// memory on some drivers, which showed up as bits of other icons inside icons).
+export global IconStore {
+    pure callback get(string, color) -> image;
+}
+
+export global Shapes {
+    pure callback path(string) -> string;
+}
+
+// Animated hero scene (src/scene.rs picks it, ui/scene.slint draws it).
+export struct SceneInfo {
+    kind: string,
+    intensity: float,
+    wind: float,
+    sky-top: color,
+    sky-bottom: color,
+    sun: color,
+    glow: color,
+    moon: color,
+    cloud: color,
+    cloud-back: color,
+    drop: color,
+    flake: color,
+    star: color,
+    bolt: color,
+}
+
+export global Semantic {
+    in property <Tint> sun: { color: #b8860b, container: #ffe08a, on-container: #261a00 };
+    in property <Tint> sunset: { color: #b45309, container: #ffdbc8, on-container: #331200 };
+    in property <Tint> rain: { color: #2563eb, container: #d8e2ff, on-container: #001a42 };
+}
+
+// ------------------------------------------------------------- weather
+
+export global Weather {
+    in property <bool> has-location;
+    in property <bool> has-data;
+    in property <bool> loading;
+    in property <string> error;
+    in property <string> notice;
+    in property <string> location-name;
+    in property <string> location-state;
+    in property <string> source;
+    in property <string> updated;
+    // hero
+    in property <string> temp;
+    in property <string> unit;
+    in property <string> condition;
+    in property <string> hero-icon;
+    in property <string> hero-shape;
+    in property <Tint> hero-tint;
+    in property <SceneInfo> scene;
+    // Seconds, ticked at 30 fps from Rust while the scene is shown.
+    in property <float> scene-time;
+    in property <string> feels;
+    in property <string> hi;
+    in property <string> lo;
+    // ordered, enabled widget ids
+    in property <[string]> widgets;
+    in property <[AlertItem]> alerts;
+    in property <[HourItem]> hourly;
+    in property <[DayItem]> daily;
+    in property <string> day-count-title;
+    in property <string> sunrise;
+    in property <string> sunset;
+    in property <[InfoTile]> details;
+    // air quality
+    in property <bool> has-aqi;
+    in property <string> aqi-value;
+    in property <string> aqi-label;
+    in property <string> aqi-desc;
+    in property <Tint> aqi-tint;
+    in property <float> aqi-pct;
+    in property <[KeyValue]> aqi-pollutants;
+    // wind
+    in property <bool> has-wind;
+    in property <string> wind-speed;
+    in property <string> wind-unit;
+    in property <string> wind-from;
+    in property <string> wind-gusts;
+    in property <float> wind-deg;
+    // feels like
+    in property <bool> has-feels;
+    in property <string> feels-actual;
+    in property <string> feels-value;
+    in property <string> feels-desc;
+    // precip outlook
+    in property <[Bar]> precip-bars;
+    // daylight
+    in property <bool> has-daylight;
+    in property <string> daylight-total;
+    in property <float> daylight-pct;
+    in property <bool> is-daytime;
+    in property <string> daylight-note;
+    // uv
+    in property <bool> has-uv;
+    in property <string> uv-value;
+    in property <string> uv-label;
+    in property <string> uv-tip;
+    in property <Tint> uv-tint;
+    in property <float> uv-pct;
+    // moon
+    in property <string> moon-name;
+    in property <string> moon-illum;
+    in property <float> moon-offset;
+    // outlook tips
+    in property <[Tip]> tips;
+    // long range
+    in property <string> future-status;   // idle | loading | ready | error | empty
+    in property <string> future-hi;
+    in property <string> future-lo;
+    in property <string> future-type;
+    in property <string> future-type-icon;
+    in property <Tint> future-type-tint;
+    in property <[KeyValue]> future-stats;
+    in property <string> future-min-date;
+    in property <string> future-max-date;
+    in property <[MenuItem]> month-items;
+    in property <int> month-index: -1;
+    in property <string> month-status;
+    in property <[MonthRow]> month-rows;
+    // dialogs
+    in property <string> hour-time;
+    in property <string> hour-date;
+    in property <string> hour-temp;
+    in property <string> hour-condition;
+    in property <string> hour-icon;
+    in property <string> hour-shape;
+    in property <Tint> hour-tint;
+    in property <[InfoTile]> hour-tiles;
+    in property <string> precip-total;
+    in property <string> precip-peak;
+    in property <[Bar]> precip-hours;
+    in property <string> dialog-title;
+    in property <[AlertItem]> dialog-alerts;
+    callback refresh();
+    callback open-hour(int);
+    callback open-precip();
+    callback future-date(string);
+    callback month-picked(int);
+}
+
+// ------------------------------------------------------------- radar playback
+
+export global Radar {
+    in property <int> count;
+    in-out property <int> index;
+    in property <bool> playing;
+    in property <float> speed: 1;
+    in property <string> time;
+    in property <string> date;
+    in property <bool> forecast;
+    in property <int> past-count;
+    in property <int> nowcast-count;
+    in property <float> nowcast-start: -1;
+    in property <[FrameTick]> ticks;
+    in property <bool> loading;
+    callback seek(int);
+    pure callback hover-label(int) -> string;
+    callback toggle-play();
+    callback set-speed(float);
+    callback now();
+    callback refresh();
+}
+
+// ------------------------------------------------------------- settings & UI state
+
+export global Prefs {
+    in property <string> theme-mode;
+    in property <string> color-source;
+    in property <string> custom-seed;
+    in property <string> variant;
+    in property <string> variant-desc;
+    in property <string> contrast;
+    in property <string> map-style;
+    in property <string> sidebar;
+    in property <bool> compact;
+    in property <bool> weather-scene;
+    in property <string> weather-api;
+    in property <string> units;
+    in property <string> map-layer;
+    in property <int> tile-quality;
+    in property <float> opacity;
+    in property <int> color-scheme;
+    in property <[Toggle]> radar-toggles;
+    in property <bool> polygons;
+    in property <bool> advisories;
+    in property <[WidgetRow]> widgets;
+    in property <[Toggle]> detail-fields;
+    in property <bool> details-enabled;
+    in property <bool> aqi-enabled;
+    in property <bool> aqi-pollutants;
+    in property <bool> notifications;
+    in property <bool> notif-nws;
+    in property <bool> notif-aqi;
+    in property <string> ai-provider;
+    in property <string> ai-url;
+    in property <string> ai-model;
+    in property <[MenuItem]> ai-models;
+    in property <int> ai-model-index: -1;
+    in property <string> ai-status;
+    in property <[Swatch]> swatches;
+    in property <[Choice]> variants;
+    in property <[RadarScheme]> radar-schemes;
+    in property <string> location-title;
+    in property <string> location-coords;
+    in property <[PlaceItem]> search-results;
+    in property <bool> searching;
+    in property <bool> locating;
+    in property <string> location-error;
+    callback set-str(string, string);
+    callback set-bool(string, bool);
+    callback set-num(string, float);
+    callback move-widget(int, int);
+    callback search(string);
+    callback pick-place(int);
+    callback locate-me();
+    callback refresh-models();
+    callback test-notification();
+    callback open-url(string);
+}
+
+export global Ui {
+    // "morph" (M3 Expressive shape change), "ripple", or "both".
+    in property <string> press-style: "morph";
+    in-out property <bool> settings-open;
+    in-out property <int> settings-tab;
+    in-out property <bool> assistant-open;
+    in-out property <bool> welcome-open;
+    in-out property <bool> beta-open;
+    in-out property <bool> whats-new-open;
+    in-out property <bool> alert-dialog-open;
+    in-out property <bool> hour-dialog-open;
+    in-out property <bool> precip-dialog-open;
+    in-out property <bool> advisory-confirm-open;
+    in-out property <int> compact-tab;
+    in property <bool> dark;
+    in property <string> toast;
+    in property <bool> toast-visible;
+    // assistant
+    in property <[ChatMsg]> chat;
+    in property <bool> chat-busy;
+    in property <string> chat-model-label;
+    in property <bool> chat-ready;
+    callback send-chat(string);
+    callback clear-chat();
+    callback dismiss-whats-new(bool);
+}

@@ -1,0 +1,143 @@
+import { MaterialPalette, PopupMenu, MenuItem } from "@material";
+import { MapBridge, MapTile } from "globals.slint";
+import { Icon, Shape, T, Motion } from "common.slint";
+
+component TileLayer inherits Rectangle {
+    in property <[MapTile]> tiles;
+    in property <float> layer-opacity: 1;
+    for t in tiles: Image {
+        x: t.x * 1px;
+        y: t.y * 1px;
+        width: t.w * 1px;
+        height: t.h * 1px;
+        source: t.img;
+        source-clip-x: t.cx;
+        source-clip-y: t.cy;
+        source-clip-width: t.cw;
+        source-clip-height: t.ch;
+        image-rendering: smooth;
+        opacity: root.layer-opacity;
+    }
+}
+
+
+export component MapView inherits Rectangle {
+    background: MaterialPalette.surface_container;
+    clip: true;
+
+    changed width => { MapBridge.resized(self.width / 1px, self.height / 1px); }
+    changed height => { MapBridge.resized(self.width / 1px, self.height / 1px); }
+    init => { MapBridge.resized(self.width / 1px, self.height / 1px); }
+
+    // Every layer lives in one container; panning only moves this container.
+    layers := Rectangle {
+        x: MapBridge.offset-x * 1px;
+        y: MapBridge.offset-y * 1px;
+        width: 0;
+        height: 0;
+        TileLayer { tiles: MapBridge.base-tiles; }
+        if MapBridge.has-aqi: Image {
+            x: MapBridge.aqi-x * 1px;
+            y: MapBridge.aqi-y * 1px;
+            width: MapBridge.aqi-w * 1px;
+            height: MapBridge.aqi-h * 1px;
+            source: MapBridge.aqi-image;
+            image-fit: fill;
+            image-rendering: smooth;
+            opacity: 0.65;
+        }
+        TileLayer { tiles: MapBridge.radar-tiles; layer-opacity: MapBridge.radar-opacity; }
+        TileLayer { tiles: MapBridge.alert-tiles; }
+        TileLayer { tiles: MapBridge.label-tiles; }
+        if MapBridge.has-pin: Rectangle {
+            x: MapBridge.pin-x * 1px - 18px;
+            y: MapBridge.pin-y * 1px - 18px;
+            width: 36px;
+            height: 36px;
+            halo := Rectangle {
+                border-radius: self.width / 2;
+                background: MaterialPalette.primary.with-alpha(0.22);
+            }
+            Shape {
+                x: 5px;
+                y: 5px;
+                name: "very-sunny";
+                size: 26px;
+                fill: MaterialPalette.primary;
+                drop-shadow-blur: 4px;
+                drop-shadow-color: #0006;
+            }
+            Rectangle {
+                x: 14px;
+                y: 14px;
+                width: 8px;
+                height: 8px;
+                border-radius: 4px;
+                background: MaterialPalette.on_primary;
+            }
+        }
+    }
+
+    property <length> last-x;
+    property <length> last-y;
+    property <length> menu-x;
+    property <length> menu-y;
+    property <bool> dragged;
+
+    ta := TouchArea {
+        mouse-cursor: self.pressed && root.dragged ? grabbing : default;
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down {
+                root.last-x = self.mouse-x;
+                root.last-y = self.mouse-y;
+                root.dragged = false;
+                if e.button == PointerEventButton.right {
+                    root.menu-x = self.mouse-x;
+                    root.menu-y = self.mouse-y;
+                    MapBridge.context(self.mouse-x / 1px, self.mouse-y / 1px);
+                    menu.show();
+                }
+            }
+        }
+        moved => {
+            if self.pressed {
+                let dx = self.mouse-x - root.last-x;
+                let dy = self.mouse-y - root.last-y;
+                if abs(dx) + abs(dy) > 0 {
+                    if root.dragged || abs(self.mouse-x - self.pressed-x) + abs(self.mouse-y - self.pressed-y) > 3px {
+                        root.dragged = true;
+                        MapBridge.pan(dx / 1px, dy / 1px);
+                    }
+                    root.last-x = self.mouse-x;
+                    root.last-y = self.mouse-y;
+                }
+            }
+        }
+        clicked => {
+            if !root.dragged { MapBridge.clicked(self.mouse-x / 1px, self.mouse-y / 1px); }
+        }
+        double-clicked => { MapBridge.zoom(1, self.mouse-x / 1px, self.mouse-y / 1px); }
+        scroll-event(e) => {
+            MapBridge.zoom(-e.delta-y / 1px, self.mouse-x / 1px, self.mouse-y / 1px);
+            accept
+        }
+    }
+
+    menu := PopupMenu {
+        x: root.menu-x;
+        y: root.menu-y;
+        items: [
+            { text: MapBridge.ctx-coords, enabled: false },
+            { text: "Set weather location here", enabled: true },
+            { text: "Center map here", enabled: true },
+            { text: "Copy coordinates", enabled: true },
+            { text: "Open in Google Maps", enabled: true },
+        ];
+        activated(i) => {
+            if i == 1 { MapBridge.ctx-set-location(); }
+            if i == 2 { MapBridge.ctx-center(); }
+            if i == 3 { MapBridge.ctx-copy(); }
+            if i == 4 { MapBridge.ctx-open-maps(); }
+        }
+    }
+}

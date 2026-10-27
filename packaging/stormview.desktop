@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=StormView
+GenericName=Weather Radar
+Comment=Live radar, forecasts and weather alerts in Material 3
+Exec=stormview
+Icon=stormview
+Terminal=false
+Categories=Utility;Network;
+Keywords=weather;radar;forecast;alerts;storm;
+StartupWMClass=stormview

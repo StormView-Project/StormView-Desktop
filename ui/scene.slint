@@ -1,0 +1,237 @@
+// Animated weather scene behind the hero, like the Pixel Weather app.
+// src/scene.rs picks the kind and the Material You colors; everything here is
+// driven by Weather.scene-time, which Rust ticks at 30 fps while the scene is on.
+import { Weather, SceneInfo } from "globals.slint";
+import { Shape } from "common.slint";
+
+// Flat cloud: one opaque color, so the overlapping circles read as one shape.
+component Cloud inherits Rectangle {
+    in property <length> w: 120px;
+    in property <color> fill;
+    width: w;
+    height: w * 0.56;
+    Rectangle { x: 0; y: root.w * 0.30; width: root.w; height: root.w * 0.26; border-radius: root.w * 0.13; background: root.fill; }
+    Rectangle { x: root.w * 0.11; y: root.w * 0.13; width: root.w * 0.34; height: self.width; border-radius: self.width / 2; background: root.fill; }
+    Rectangle { x: root.w * 0.31; y: root.w * 0.01; width: root.w * 0.48; height: self.width; border-radius: self.width / 2; background: root.fill; }
+    Rectangle { x: root.w * 0.64; y: root.w * 0.19; width: root.w * 0.28; height: self.width; border-radius: self.width / 2; background: root.fill; }
+}
+
+export component WeatherScene inherits Rectangle {
+    in property <SceneInfo> s: Weather.scene;
+    property <float> t: Weather.scene-time;
+    property <string> k: s.kind;
+    property <bool> sunny: k == "clear-day" || k == "partly-day";
+    property <bool> moony: k == "clear-night" || k == "partly-night";
+    property <bool> partly: k == "partly-day" || k == "partly-night";
+    property <bool> overcast: k == "cloudy" || k == "rain" || k == "snow" || k == "sleet" || k == "storm" || k == "hail";
+    property <bool> wet: k == "rain" || k == "sleet" || k == "storm" || k == "hail";
+    property <bool> icy: k == "snow" || k == "sleet";
+    property <int> drops: !wet ? 0 : k == "storm" ? 36 : k == "sleet" ? 14 : k == "hail" ? 12 : round(10 + 28 * s.intensity);
+    property <int> flakes: k == "snow" ? round(14 + 22 * s.intensity) : k == "sleet" ? 12 : 0;
+    property <int> pellets: k == "hail" ? 18 : 0;
+    // Precipitation falls from under the clouds on the right.
+    property <length> px0: root.width - 236px;
+    property <length> pw: 210px;
+    property <length> py0: 96px;
+    // Lightning: a double flash every 5.5 s.
+    property <float> ph: mod(t, 5.5);
+    property <bool> flash: k == "storm" && (ph < 0.09 || (ph > 0.2 && ph < 0.3));
+
+    // Cheap deterministic hash in [0, 1).
+    pure function hash(n: float) -> float {
+        let v = sin(n * 12.9898rad) * 43758.5453;
+        v - floor(v)
+    }
+    pure function fade(p: float) -> float {
+        min(1, p * 8) * min(1, (1 - p) * 4)
+    }
+
+    background: @linear-gradient(200deg, s.sky-top 0%, s.sky-bottom 100%);
+    clip: true;
+
+    // ---------------------------------------------------------------- stars
+    if moony: Rectangle {
+        for i in 16: Rectangle {
+            property <float> u: root.hash(i + 1.7);
+            property <float> v: root.hash(i + 9.1);
+            x: root.width * (0.30 + 0.68 * u);
+            y: root.height * 0.75 * v;
+            width: 2px + 2px * root.hash(i + 4.4);
+            height: self.width;
+            border-radius: self.width / 2;
+            background: root.s.star;
+            opacity: 0.25 + 0.75 * (0.5 + 0.5 * sin(root.t * (40deg + 60deg * v) + u * 360deg));
+        }
+    }
+
+    // ---------------------------------------------------------------- sun
+    if sunny: Rectangle {
+        property <length> cx: root.width - (root.partly ? 92px : 78px);
+        property <length> cy: root.partly ? 56px : 70px;
+        property <length> size: root.partly ? 72px : 92px;
+        // Soft halo that breathes.
+        Rectangle {
+            width: parent.size * 2.4 + 18px * sin(root.t * 60deg);
+            height: self.width;
+            x: parent.cx - self.width / 2;
+            y: parent.cy - self.height / 2;
+            background: @radial-gradient(circle, root.s.glow 0%, root.s.glow 30%, root.s.glow.transparentize(1) 70%);
+        }
+        Shape {
+            name: "sunny";
+            size: parent.size;
+            fill: root.s.sun;
+            x: parent.cx - self.width / 2;
+            y: parent.cy - self.height / 2;
+            transform-rotation: root.t * 10deg;
+        }
+    }
+
+    // ---------------------------------------------------------------- moon
+    if moony: Rectangle {
+        property <length> cx: root.width - (root.partly ? 96px : 80px);
+        property <length> cy: (root.partly ? 54px : 66px) + 4px * sin(root.t * 30deg);
+        Rectangle {
+            width: 170px + 12px * sin(root.t * 45deg);
+            height: self.width;
+            x: parent.cx - self.width / 2;
+            y: parent.cy - self.height / 2;
+            background: @radial-gradient(circle, root.s.moon.transparentize(0.8) 0%, root.s.moon.transparentize(1) 65%);
+        }
+        Path {
+            width: root.partly ? 60px : 72px;
+            height: self.width;
+            x: parent.cx - self.width / 2;
+            y: parent.cy - self.height / 2;
+            viewbox-width: 100;
+            viewbox-height: 100;
+            commands: "M 72 12 A 44 44 0 1 0 72 88 A 40 40 0 0 1 72 12 Z";
+            fill: root.s.moon;
+            stroke-width: 0;
+            transform-rotation: -18deg;
+        }
+    }
+
+    // ---------------------------------------------------------------- back clouds
+    if partly: Cloud {
+        w: 84px;
+        fill: root.s.cloud-back;
+        x: root.width - 92px + 6px * sin(root.t * 16deg + 200deg);
+        y: 92px;
+    }
+    if overcast: Cloud {
+        w: 124px;
+        fill: root.s.cloud-back;
+        x: root.width - 140px + 9px * sin(root.t * 14deg);
+        y: 20px + 2px * sin(root.t * 25deg);
+    }
+
+    // ---------------------------------------------------------------- precipitation
+    if drops > 0: Rectangle {
+        for i in 40: Rectangle {
+            property <float> u: root.hash(i + 0.31);
+            property <float> v: root.hash(i + 7.77);
+            property <float> period: 0.85 - 0.35 * root.s.intensity + 0.3 * v;
+            property <float> p: mod(root.t / self.period + u, 1);
+            property <length> fall: root.height - root.py0 + 24px;
+            property <length> len: 8px + 10px * root.s.intensity;
+            visible: i < root.drops;
+            width: 2.5px;
+            height: self.len;
+            border-radius: 1.25px;
+            background: root.s.drop;
+            x: root.px0 + root.pw * root.hash(i + 3.3) + root.s.wind * 0.5 * self.fall * self.p;
+            y: root.py0 + self.fall * self.p - self.len;
+            transform-rotation: -26deg * root.s.wind;
+            opacity: root.fade(self.p) * (0.6 + 0.4 * v);
+        }
+    }
+    if flakes > 0: Rectangle {
+        for i in 36: Rectangle {
+            property <float> u: root.hash(i + 2.13);
+            property <float> v: root.hash(i + 5.71);
+            property <float> period: 5.5 - 2.2 * root.s.intensity + 2 * v;
+            property <float> p: mod(root.t / self.period + u, 1);
+            property <length> fall: root.height - root.py0 + 16px;
+            visible: i < root.flakes;
+            width: 3px + 4px * v;
+            height: self.width;
+            border-radius: self.width / 2;
+            background: root.s.flake;
+            x: root.px0 + root.pw * root.hash(i + 8.8) + 9px * sin(root.t * (70deg + 50deg * u) + v * 360deg) + root.s.wind * 0.4 * self.fall * self.p;
+            y: root.py0 + self.fall * self.p - self.height;
+            opacity: root.fade(self.p);
+        }
+    }
+    if pellets > 0: Rectangle {
+        for i in 18: Rectangle {
+            property <float> u: root.hash(i + 4.04);
+            property <float> period: 0.55 + 0.25 * root.hash(i + 6.6);
+            property <float> p: mod(root.t / self.period + u, 1);
+            property <length> fall: root.height - root.py0 + 12px;
+            width: 5px;
+            height: 5px;
+            border-radius: 2.5px;
+            background: root.s.flake;
+            x: root.px0 + root.pw * root.hash(i + 1.1) + root.s.wind * 0.3 * self.fall * self.p;
+            y: root.py0 + self.fall * self.p - 5px;
+            opacity: root.fade(self.p);
+        }
+    }
+
+    // ---------------------------------------------------------------- lightning
+    if k == "storm": Path {
+        x: root.width - 150px;
+        y: 104px;
+        width: 30px;
+        height: 60px;
+        viewbox-width: 40;
+        viewbox-height: 80;
+        commands: "M 22 0 L 4 44 L 18 44 L 10 80 L 36 30 L 22 30 L 30 0 Z";
+        fill: root.s.bolt;
+        stroke-width: 0;
+        opacity: root.flash ? 1 : 0;
+    }
+
+    // ---------------------------------------------------------------- front clouds
+    if partly: Cloud {
+        w: 122px;
+        fill: root.s.cloud;
+        x: root.width - 186px + 8px * sin(root.t * 12deg);
+        y: 66px + 2px * sin(root.t * 22deg + 40deg);
+    }
+    if overcast: Cloud {
+        w: 156px;
+        fill: root.s.cloud;
+        x: root.width - 222px + 11px * sin(root.t * 11deg + 120deg);
+        y: 46px + 2px * sin(root.t * 20deg + 90deg);
+    }
+    if overcast && !wet && !icy: Cloud {
+        w: 82px;
+        fill: root.s.cloud;
+        x: root.width - 96px + 6px * sin(root.t * 17deg + 220deg);
+        y: 84px + 2px * sin(root.t * 24deg);
+    }
+
+    // ---------------------------------------------------------------- fog
+    if k == "fog": Rectangle {
+        // Soft overlapping puffs that drift and breathe.
+        for i in 10: Rectangle {
+            property <float> u: root.hash(i + 3.9);
+            property <float> v: root.hash(i + 6.2);
+            width: 150px + 90px * v;
+            height: self.width;
+            x: root.width * (0.18 + 0.72 * u) - self.width / 2 + 30px * sin(root.t * (7deg + 6deg * v) + i * 70deg);
+            y: root.height * (0.1 + 0.8 * root.hash(i + 2.5)) - self.height / 2;
+            background: @radial-gradient(circle, root.s.cloud.transparentize(0.3) 0%, root.s.cloud.transparentize(1) 68%);
+            opacity: 0.7 + 0.3 * sin(root.t * 18deg + i * 50deg);
+        }
+    }
+
+    // Flash lights the whole sky for an instant.
+    if k == "storm": Rectangle {
+        background: white;
+        opacity: root.flash ? 0.18 : 0;
+        animate opacity { duration: 60ms; }
+    }
+}

@@ -1,0 +1,211 @@
+import { MaterialPalette, ScrollView, TextField, CircularProgressIndicator } from "@material";
+import { Weather, Ui, Prefs } from "globals.slint";
+import { T, Icon, Shape, Pill, DialogFrame, ToolButton, Motion, Btn, CheckMark, PressFx, Feel } from "common.slint";
+import { Bars, MiniTiles } from "widgets.slint";
+
+component Scroller inherits ScrollView {
+    in property <length> max-h: 520px;
+    preferred-height: min(inner.preferred-height, max-h);
+    min-height: min(inner.preferred-height, 120px);
+    content-height: inner.preferred-height;
+    inner := VerticalLayout {
+        width: root.visible-width;
+        spacing: 12px;
+        @children
+    }
+}
+
+export component Dialogs inherits Rectangle {
+    // ---------------------------------------------------------- alerts / AQI point
+    DialogFrame {
+        open <=> Ui.alert-dialog-open;
+        title: Weather.dialog-title;
+        icon: "warning-fill";
+        card-width: 680px;
+        Scroller {
+            max-h: root.height - 200px;
+            for a in Weather.dialog-alerts: Rectangle {
+                border-radius: 24px;
+                background: a.tint.container;
+                VerticalLayout {
+                    padding: 16px;
+                    spacing: 8px;
+                    HorizontalLayout {
+                        spacing: 10px;
+                        Shape {
+                            name: "burst";
+                            size: 40px;
+                            fill: a.tint.color;
+                            Icon { x: 10px; y: 10px; name: "warning-fill"; size: 20px; tint: a.tint.container; }
+                        }
+                        Text { text: a.title; font-size: 16px; font-weight: 700; color: a.tint.on-container; wrap: word-wrap; vertical-alignment: center; horizontal-stretch: 1; }
+                        VerticalLayout { alignment: center; Pill { text: a.severity; fill: a.tint.color; ink: a.tint.container; } }
+                    }
+                    if a.until != "": Text { text: a.until; font-size: 12px; font-weight: 500; color: a.tint.on-container; }
+                    if a.headline != "": Text { text: a.headline; font-size: 14px; font-weight: 600; color: a.tint.on-container; wrap: word-wrap; }
+                    if a.description != "": Text { text: a.description; font-size: 13px; color: a.tint.on-container; wrap: word-wrap; }
+                    if a.instruction != "": Text { text: a.instruction; font-size: 13px; font-weight: 700; color: a.tint.on-container; wrap: word-wrap; }
+                }
+            }
+        }
+    }
+
+    // ---------------------------------------------------------- hour detail
+    DialogFrame {
+        open <=> Ui.hour-dialog-open;
+        title: Weather.hour-time + " · " + Weather.hour-date;
+        icon: "schedule";
+        HorizontalLayout {
+            spacing: 16px;
+            Shape {
+                name: Weather.hour-shape;
+                size: 76px;
+                fill: Weather.hour-tint.container;
+                Icon { x: 18px; y: 18px; name: Weather.hour-icon; size: 40px; tint: Weather.hour-tint.on-container; }
+            }
+            VerticalLayout {
+                alignment: center;
+                T { text: Weather.hour-temp; role: "display-small"; }
+                T { text: Weather.hour-condition; role: "title-medium"; }
+            }
+        }
+        Scroller { max-h: root.height - 300px; MiniTiles { tiles: Weather.hour-tiles; } }
+    }
+
+    // ---------------------------------------------------------- precipitation today
+    DialogFrame {
+        open <=> Ui.precip-dialog-open;
+        title: "Precipitation Today";
+        icon: "rainy-fill";
+        HorizontalLayout {
+            spacing: 8px;
+            Rectangle {
+                horizontal-stretch: 1;
+                border-radius: 20px;
+                background: MaterialPalette.primary_container;
+                VerticalLayout { padding: 14px; Text { text: Weather.precip-total; font-size: 24px; color: MaterialPalette.on_primary_container; } Text { text: "Total today"; font-size: 12px; color: MaterialPalette.on_primary_container; } }
+            }
+            Rectangle {
+                horizontal-stretch: 1;
+                border-radius: 20px;
+                background: MaterialPalette.tertiary_container;
+                VerticalLayout { padding: 14px; Text { text: Weather.precip-peak; font-size: 24px; color: MaterialPalette.on_tertiary_container; } Text { text: "Peak chance"; font-size: 12px; color: MaterialPalette.on_tertiary_container; } }
+            }
+        }
+        Flickable {
+            height: 200px;
+            content-width: max(self.width, Weather.precip-hours.length * 36px);
+            Bars { width: max(parent.width, Weather.precip-hours.length * 36px); bars: Weather.precip-hours; track-height: 140px; }
+        }
+    }
+
+    // ---------------------------------------------------------- advisory confirm
+    DialogFrame {
+        open <=> Ui.advisory-confirm-open;
+        title: "Performance warning";
+        icon: "speed";
+        T { text: "Enabling advisories fetches zone boundary data from the NWS API for every active advisory in the country — this can be dozens of extra network requests and may noticeably slow things down on first load."; wrap: word-wrap; }
+        T { text: "Zone boundaries are cached after the first fetch, so later refreshes are faster."; muted: true; wrap: word-wrap; }
+        HorizontalLayout {
+            alignment: end;
+            spacing: 8px;
+            Btn { kind: "text"; text: "Cancel"; clicked => { Ui.advisory-confirm-open = false; } }
+            Btn { text: "Enable anyway"; clicked => { Prefs.set-bool("advisories", true); Ui.advisory-confirm-open = false; } }
+        }
+    }
+
+    // ---------------------------------------------------------- welcome
+    DialogFrame {
+        open <=> Ui.welcome-open;
+        dismissible: false;
+        has-icon: false;
+        title: "";
+        card-width: 440px;
+        VerticalLayout {
+            spacing: 16px;
+            HorizontalLayout {
+                alignment: center;
+                Shape {
+                    name: "very-sunny";
+                    size: 120px;
+                    fill: MaterialPalette.primary_container;
+                    Icon { x: 32px; y: 32px; name: "partly_cloudy_day-fill"; size: 56px; tint: MaterialPalette.on_primary_container; }
+                }
+            }
+            T { text: "Welcome to StormView"; role: "headline-medium"; horizontal-alignment: center; }
+            T { text: "To show weather and radar for your area, StormView needs your location. You can also set it manually."; muted: true; wrap: word-wrap; horizontal-alignment: center; }
+            if Prefs.location-error != "": T { text: Prefs.location-error; color: MaterialPalette.error; wrap: word-wrap; horizontal-alignment: center; }
+            HorizontalLayout {
+                alignment: end;
+                spacing: 8px;
+                Btn { kind: "text"; text: "Set manually"; clicked => { Ui.welcome-open = false; Ui.settings-tab = 0; Ui.settings-open = true; } }
+                Btn {
+                    text: Prefs.locating ? "Locating…" : "Use my location";
+                    icon: "my_location";
+                    enabled: !Prefs.locating;
+                    clicked => { Prefs.locate-me(); }
+                }
+            }
+        }
+    }
+
+    // ---------------------------------------------------------- beta
+    DialogFrame {
+        open <=> Ui.beta-open;
+        title: "StormView is in beta";
+        icon: "science-fill";
+        Rectangle {
+            border-radius: 20px;
+            background: MaterialPalette.tertiary_container;
+            VerticalLayout {
+                padding: 16px;
+                spacing: 6px;
+                Text { text: "Want to try tomorrow’s StormView today?"; font-size: 16px; font-weight: 700; color: MaterialPalette.on_tertiary_container; wrap: word-wrap; }
+                Text { text: "The dev build gets new features, UI experiments and radar improvements weeks before the main app."; font-size: 13px; color: MaterialPalette.on_tertiary_container; wrap: word-wrap; }
+            }
+        }
+        Btn { kind: "tonal"; text: "Open dev build"; icon: "rocket_launch"; clicked => { Prefs.open-url("https://stormview.develop.arc360hub.com"); } }
+        T { text: "Under heavy development. You may run into bugs, missing features, or rough edges — reporting what breaks goes a long way."; wrap: word-wrap; }
+        Btn { kind: "outlined"; text: "Report an issue on GitHub"; icon: "bug_report"; clicked => { Prefs.open-url("https://github.com/arc360alt/StormView-Rewrite/issues"); } }
+        T { text: "What happened to the old StormView? The original is still planned to be hosted separately; getting this rewrite stable and feature-complete comes first."; muted: true; wrap: word-wrap; }
+    }
+
+    // ---------------------------------------------------------- what's new
+    wn := DialogFrame {
+        property <bool> never;
+        open <=> Ui.whats-new-open;
+        title: "What’s new in StormView";
+        icon: "rocket_launch-fill";
+        card-width: 640px;
+        closed => { Ui.dismiss-whats-new(self.never); }
+        Scroller {
+            max-h: root.height - 260px;
+            for f[i] in [
+                { icon: "desktop_windows-fill", title: "Truly native", desc: "Rewritten as a native Rust app on Slint's GPU renderer — no webview, no browser engine, smooth radar dragging." },
+                { icon: "palette-fill", title: "Material You, for real", desc: "Every color comes from Google’s dynamic color algorithm (Rust port, spec 2025). Pick a seed, a scheme style and contrast — or let the weather choose." },
+                { icon: "interests-fill", title: "Material 3 Expressive", desc: "Shape-library containers, springy motion, connected button groups and Slint's official Material 3 components." },
+                { icon: "radar-fill", title: "LibreWXR on a themed map", desc: "The base map is repainted with your color scheme; radar sits between the land and the labels." },
+                { icon: "notifications_active-fill", title: "Native alert notifications", desc: "NWS warnings and unhealthy-air alerts as system notifications." },
+                { icon: "smart_toy-fill", title: "Local weather assistant", desc: "Ask about the forecast with Ollama or any OpenAI-compatible local server." },
+            ]: HorizontalLayout {
+                spacing: 14px;
+                Shape {
+                    name: i == 0 ? "sunny" : i == 1 ? "4-leaf-clover" : i == 2 ? "flower" : i == 3 ? "8-leaf-clover" : i == 4 ? "soft-burst" : "puffy";
+                    size: 48px;
+                    fill: mod(i, 3) == 0 ? MaterialPalette.primary_container : mod(i, 3) == 1 ? MaterialPalette.secondary_container : MaterialPalette.tertiary_container;
+                    Icon { x: 12px; y: 12px; name: f.icon; tint: mod(i, 3) == 0 ? MaterialPalette.on_primary_container : mod(i, 3) == 1 ? MaterialPalette.on_secondary_container : MaterialPalette.on_tertiary_container; }
+                }
+                VerticalLayout {
+                    T { text: f.title; role: "title-medium"; }
+                    T { text: f.desc; muted: true; wrap: word-wrap; }
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            CheckMark { changed checked => { wn.never = self.checked; } }
+            T { text: "Don’t show again until the next update"; role: "body-small"; muted: true; horizontal-stretch: 1; }
+            Btn { text: "Got it"; clicked => { Ui.whats-new-open = false; Ui.dismiss-whats-new(wn.never); } }
+        }
+    }
+}

@@ -1,0 +1,159 @@
+import { MaterialPalette, LinearProgressIndicator, CircularProgressIndicator } from "@material";
+import { Radar, MapBridge } from "globals.slint";
+import { T, Icon, ToolButton, GroupButton, Pill, Motion, Btn, PressFx, Feel } from "common.slint";
+
+component Timeline inherits Rectangle {
+    height: 44px;
+    property <int> n: Radar.count;
+    property <float> pos: n > 1 ? Radar.index / (n - 1) : 0;
+    property <int> hover: -1;
+    property <length> track-x: 8px;
+    property <length> track-w: self.width - 16px;
+    function idx-at(x: length) -> int {
+        return n <= 1 ? 0 : round(clamp((x - track-x) / track-w, 0, 1) * (n - 1));
+    }
+    // Track: active (primary) before the handle, inactive after, nowcast band in tertiary.
+    Rectangle {
+        x: root.track-x;
+        y: (parent.height - 16px) / 2;
+        width: root.track-w;
+        height: 16px;
+        Rectangle {
+            x: 0;
+            width: max(0, parent.width * root.pos - 6px);
+            border-top-left-radius: 8px;
+            border-bottom-left-radius: 8px;
+            border-top-right-radius: 2px;
+            border-bottom-right-radius: 2px;
+            background: MaterialPalette.primary;
+        }
+        Rectangle {
+            x: parent.width * root.pos + 6px;
+            width: max(0, parent.width - self.x);
+            border-top-right-radius: 8px;
+            border-bottom-right-radius: 8px;
+            border-top-left-radius: 2px;
+            border-bottom-left-radius: 2px;
+            background: MaterialPalette.secondary_container;
+        }
+        if Radar.nowcast-start >= 0: Rectangle {
+            x: max(parent.width * root.pos + 6px, parent.width * Radar.nowcast-start);
+            width: max(0, parent.width - self.x);
+            border-top-right-radius: 8px;
+            border-bottom-right-radius: 8px;
+            border-top-left-radius: 2px;
+            border-bottom-left-radius: 2px;
+            background: MaterialPalette.tertiary_container;
+        }
+        for t[i] in Radar.ticks: Rectangle {
+            visible: i != Radar.index;
+            x: parent.width * t.pct - 2px;
+            y: (parent.height - 4px) / 2;
+            width: 4px;
+            height: 4px;
+            border-radius: 2px;
+            background: i < Radar.index ? MaterialPalette.on_primary
+                : t.nowcast ? MaterialPalette.on_tertiary_container : MaterialPalette.on_secondary_container;
+        }
+    }
+    handle := Rectangle {
+        x: root.track-x + root.track-w * root.pos - self.width / 2;
+        y: 0;
+        width: ta.pressed ? 2px : 4px;
+        height: parent.height;
+        border-radius: 2px;
+        background: MaterialPalette.primary;
+        animate width { duration: 200ms; easing: Motion.spring; }
+    }
+    if root.hover >= 0 && !ta.pressed: Rectangle {
+        x: clamp(root.track-x + root.track-w * (root.n > 1 ? root.hover / (root.n - 1) : 0) - self.width / 2, 0, root.width - self.width);
+        y: -34px;
+        width: tip.preferred-width + 20px;
+        height: 28px;
+        border-radius: 8px;
+        background: MaterialPalette.inverse_surface;
+        tip := Text { text: Radar.hover-label(root.hover); color: MaterialPalette.inverse_on_surface; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down { Radar.seek(root.idx-at(self.mouse-x)); }
+        }
+        moved => {
+            if self.pressed {
+                let i = root.idx-at(self.mouse-x);
+                if i != Radar.index { Radar.seek(i); }
+            }
+        }
+        changed mouse-x => { root.hover = self.has-hover ? root.idx-at(self.mouse-x) : -1; }
+        changed has-hover => { if !self.has-hover { root.hover = -1; } }
+    }
+}
+
+export component Scrubber inherits Rectangle {
+    border-radius: 28px;
+    background: MaterialPalette.surface_container;
+    drop-shadow-blur: 16px;
+    drop-shadow-color: #0000004d;
+    drop-shadow-offset-y: 4px;
+    height: layout.preferred-height;
+    layout := VerticalLayout {
+        padding: 12px;
+        padding-left: 16px;
+        padding-right: 16px;
+        spacing: 6px;
+        if Radar.count == 0: HorizontalLayout {
+            spacing: 12px;
+            alignment: center;
+            CircularProgressIndicator { indeterminate: Radar.loading; width: 28px; height: 28px; }
+            T { text: Radar.loading ? "Loading radar…" : "Radar unavailable"; role: "label-large"; }
+            if !Radar.loading: Btn { kind: "tonal"; text: "Retry"; clicked => { Radar.refresh(); } }
+        }
+        if Radar.count > 0 && MapBridge.radar-progress >= 0: HorizontalLayout {
+            spacing: 10px;
+            VerticalLayout { alignment: center; LinearProgressIndicator { progress: MapBridge.radar-progress; horizontal-stretch: 1; } }
+            T { text: "Caching frames " + round(MapBridge.radar-progress * 100) + "%"; role: "label-small"; muted: true; }
+        }
+        if Radar.count > 0: HorizontalLayout {
+            spacing: 10px;
+            VerticalLayout { alignment: center; ToolButton {
+                icon: Radar.playing ? "pause-fill" : "play_arrow-fill";
+                filled: true;
+                selected: Radar.playing;
+                size: 48px;
+                clicked => { Radar.toggle-play(); }
+            } }
+            HorizontalLayout {
+                spacing: 2px;
+                for sp[i] in [0.5, 1, 2]: VerticalLayout { alignment: center; GroupButton {
+                    text: sp + "×";
+                    selected: Radar.speed == sp;
+                    first: i == 0;
+                    last: i == 2;
+                    clicked => { Radar.set-speed(sp); }
+                } }
+            }
+            VerticalLayout {
+                horizontal-stretch: 1;
+                alignment: center;
+                HorizontalLayout {
+                    alignment: center;
+                    spacing: 8px;
+                    Text { text: Radar.time; font-size: 22px; font-weight: 700; color: MaterialPalette.on_surface; }
+                    if Radar.forecast: VerticalLayout { alignment: center; Pill { text: "Forecast"; fill: MaterialPalette.tertiary_container; ink: MaterialPalette.on_tertiary_container; } }
+                }
+                T { text: Radar.date; role: "label-medium"; muted: true; horizontal-alignment: center; }
+            }
+            VerticalLayout { alignment: center; Btn { kind: "tonal"; text: "Now"; icon: "skip_next"; clicked => { Radar.now(); } } }
+            VerticalLayout { alignment: center; ToolButton { icon: "refresh"; size: 40px; clicked => { Radar.refresh(); } } }
+        }
+        if Radar.count > 0: Timeline { }
+        if Radar.count > 0: HorizontalLayout {
+            alignment: center;
+            spacing: 16px;
+            HorizontalLayout { spacing: 6px; Rectangle { width: 8px; height: 8px; border-radius: 4px; background: MaterialPalette.primary; y: (parent.height - 8px) / 2; } T { text: Radar.past-count + " past frames"; role: "label-small"; muted: true; } }
+            if Radar.nowcast-count > 0: HorizontalLayout { spacing: 6px; Rectangle { width: 8px; height: 8px; border-radius: 4px; background: MaterialPalette.tertiary; y: (parent.height - 8px) / 2; } T { text: Radar.nowcast-count + " nowcast frames"; role: "label-small"; muted: true; } }
+            T { text: "LibreWXR"; role: "label-small"; muted: true; }
+        }
+    }
+}

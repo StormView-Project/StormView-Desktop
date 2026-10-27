@@ -1,0 +1,615 @@
+import {
+    MaterialPalette, Slider, TextField, MenuItem, ScrollView, CircularProgressIndicator,
+} from "@material";
+import { Prefs, Ui, Weather, Swatch } from "globals.slint";
+import { T, Icon, Shape, Pill, ToolButton, Motion, DialogFrame, Select, Btn, Seg, Toggle, Chip, ListRow, PressFx, Feel } from "common.slint";
+
+component Group inherits VerticalLayout {
+    in property <string> title;
+    in property <string> sub;
+    spacing: 8px;
+    T { text: root.title; role: "title-small"; strong: true; color: MaterialPalette.primary; }
+    if root.sub != "": T { text: root.sub; muted: true; wrap: word-wrap; }
+    Rectangle {
+        border-radius: 24px;
+        background: MaterialPalette.surface_container;
+        VerticalLayout {
+            padding: 16px;
+            padding-top: 8px;
+            padding-bottom: 8px;
+            spacing: 4px;
+            @children
+        }
+    }
+}
+
+component Row inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> sub;
+    spacing: 16px;
+    min-height: 56px;
+    VerticalLayout {
+        horizontal-stretch: 1;
+        alignment: center;
+        T { text: root.label; role: "body-large"; wrap: word-wrap; }
+        if root.sub != "": T { text: root.sub; role: "body-small"; muted: true; wrap: word-wrap; }
+    }
+    @children
+}
+
+component ToggleRow inherits Row {
+    in property <bool> on;
+    callback toggled(bool);
+    VerticalLayout {
+        alignment: center;
+        Toggle { checked: root.on; toggled(v) => { root.toggled(v); } }
+    }
+}
+
+component Stack inherits VerticalLayout {
+    in property <string> label;
+    in property <string> sub;
+    spacing: 10px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+    VerticalLayout {
+        T { text: root.label; role: "body-large"; }
+        if root.sub != "": T { text: root.sub; role: "body-small"; muted: true; wrap: word-wrap; }
+    }
+    @children
+}
+
+// ------------------------------------------------------------- tabs
+
+component LocationTab inherits VerticalLayout {
+    spacing: 20px;
+    if Prefs.location-title != "": Rectangle {
+        border-radius: 28px;
+        background: MaterialPalette.primary_container;
+        HorizontalLayout {
+            padding: 16px;
+            spacing: 16px;
+            Shape {
+                name: "sunny";
+                size: 56px;
+                fill: MaterialPalette.primary;
+                Icon { x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; name: "location_on-fill"; tint: MaterialPalette.on_primary; }
+            }
+            VerticalLayout {
+                alignment: center;
+                Text { text: Prefs.location-title; font-size: 22px; color: MaterialPalette.on_primary_container; wrap: word-wrap; }
+                Text { text: Prefs.location-coords; font-size: 12px; color: MaterialPalette.on_primary_container; }
+            }
+        }
+    }
+    Group {
+        title: "Your location";
+        VerticalLayout {
+            padding-top: 8px;
+            spacing: 8px;
+            TextField {
+                label: "Search city, zip, or address";
+                edited(t) => { Prefs.search(t); }
+            }
+            if Prefs.searching: HorizontalLayout { spacing: 8px; CircularProgressIndicator { indeterminate: true; width: 20px; height: 20px; } T { text: "Searching…"; muted: true; } }
+            for r in Prefs.search-results: ListRow {
+                title: r.title;
+                subtitle: r.subtitle;
+                icon: "location_on";
+                clicked => { Prefs.pick-place(r.index); }
+            }
+            if Prefs.location-error != "": T { text: Prefs.location-error; color: MaterialPalette.error; wrap: word-wrap; }
+            Btn { kind: "tonal";
+                text: Prefs.locating ? "Locating…" : "Use my current location";
+                icon: "my_location";
+                enabled: !Prefs.locating;
+                clicked => { Prefs.locate-me(); }
+            }
+            T { text: "Tip: right-click anywhere on the map to set the weather location there."; role: "body-small"; muted: true; wrap: word-wrap; }
+        }
+    }
+}
+
+component WeatherTab inherits VerticalLayout {
+    spacing: 20px;
+    Group {
+        title: "Weather provider";
+        Stack {
+            label: "Data source";
+            sub: "NWS is US-only (falls back to Open-Meteo elsewhere). Open-Meteo is global.";
+            Seg {
+                items: [{ text: "NWS" }, { text: "Open-Meteo" }];
+                current-index: Prefs.weather-api == "nws" ? 0 : 1;
+                index-changed(i) => { Prefs.set-str("weatherApi", i == 0 ? "nws" : "openmeteo"); }
+            }
+        }
+    }
+    Group {
+        title: "Units";
+        Stack {
+            label: "Temperature & speed";
+            sub: Prefs.units == "imperial" ? "°F · mph · in · mi" : "°C · km/h · mm · km";
+            Seg {
+                items: [{ text: "Imperial" }, { text: "Metric" }];
+                current-index: Prefs.units == "imperial" ? 0 : 1;
+                index-changed(i) => { Prefs.set-str("units", i == 0 ? "imperial" : "metric"); }
+            }
+        }
+    }
+}
+
+// Fixed-size cell so every swatch lines up exactly; the click target covers it all.
+component SwatchButton inherits Rectangle {
+    in property <Swatch> sw;
+    property <bool> active: Prefs.color-source == sw.id;
+    height: 92px;
+    border-radius: 20px;
+    shape := Shape {
+        x: (parent.width - self.width) / 2;
+        y: 6px;
+        name: root.active ? "9-sided-cookie" : "circle";
+        size: 60px;
+        fill: root.active ? MaterialPalette.primary_container : root.sw.has-preview ? transparent : MaterialPalette.surface_container_highest;
+        transform-scale: Feel.morph && fx.pressed ? 0.9 : 1;
+        animate transform-scale { duration: 300ms; easing: Motion.spring; }
+        // Pre-rendered in Rust: exact circle with anti-aliased color slices.
+        if root.sw.has-preview: Image { x: 2px; y: 2px; width: 56px; height: 56px; source: root.sw.icon; image-rendering: smooth; }
+        if !root.sw.has-preview: Icon { x: 18px; y: 18px; name: root.sw.glyph; tint: MaterialPalette.on_surface_variant; }
+        if root.active: Rectangle {
+            x: 15px;
+            y: 15px;
+            width: 30px;
+            height: 30px;
+            border-radius: 15px;
+            background: MaterialPalette.primary;
+            Icon { name: "check"; size: 20px; tint: MaterialPalette.on_primary; }
+        }
+    }
+    Text {
+        y: 70px;
+        width: parent.width;
+        text: root.sw.label;
+        font-size: 12px;
+        font-weight: root.active ? 700 : 500;
+        color: root.active ? MaterialPalette.primary : MaterialPalette.on_surface;
+        horizontal-alignment: center;
+    }
+    fx := PressFx { radius: root.border-radius; clicked => { Prefs.set-str("colorSource", root.sw.id); } }
+}
+
+component DisplayTab inherits VerticalLayout {
+    spacing: 20px;
+    Group {
+        title: "Mode";
+        Stack {
+            label: "Theme";
+            Seg {
+                items: [{ text: "System", icon: "contrast" }, { text: "Light", icon: "light_mode" }, { text: "Dark", icon: "dark_mode" }];
+                current-index: Prefs.theme-mode == "light" ? 1 : Prefs.theme-mode == "dark" ? 2 : 0;
+                index-changed(i) => { Prefs.set-str("themeMode", i == 1 ? "light" : i == 2 ? "dark" : "system"); }
+            }
+        }
+    }
+    Group {
+        title: "Press animation";
+        Stack {
+            label: "When you press a button";
+            sub: Ui.press-style == "ripple" ? "Classic Material ripple spreading from your pointer." : Ui.press-style == "both" ? "Shapes morph and a ripple spreads from your pointer." : "Material 3 Expressive: corners and shapes morph as you press.";
+            Seg {
+                items: [{ text: "Shape morph" }, { text: "Ripple" }, { text: "Both" }];
+                current-index: Ui.press-style == "ripple" ? 1 : Ui.press-style == "both" ? 2 : 0;
+                index-changed(i) => { Prefs.set-str("pressStyle", i == 1 ? "ripple" : i == 2 ? "both" : "morph"); }
+            }
+        }
+    }
+    Group {
+        title: "Material You color";
+        sub: "Colors are never hand-picked: a seed goes through Google’s Material color algorithm to build the full tonal scheme.";
+        VerticalLayout {
+            padding-top: 8px;
+            padding-bottom: 8px;
+            spacing: 12px;
+            for row in ceil(Prefs.swatches.length / 4): HorizontalLayout {
+                spacing: 6px;
+                for k in [row * 4, row * 4 + 1, row * 4 + 2, row * 4 + 3]: Rectangle {
+                    horizontal-stretch: 1;
+                    height: 92px;
+                    if k < Prefs.swatches.length: SwatchButton { width: parent.width; sw: Prefs.swatches[k]; }
+                }
+            }
+            if Prefs.color-source == "adaptive": T { text: "The whole app re-tints itself from the current conditions — amber sun, blue rain, violet storms, icy snow."; role: "body-small"; muted: true; wrap: word-wrap; }
+            if Prefs.color-source == "custom": TextField {
+                label: "Seed color (hex)";
+                text: Prefs.custom-seed;
+                accepted(t) => { Prefs.set-str("customSeed", t); }
+                edited(t) => { if t.character-count == 7 { Prefs.set-str("customSeed", t); } }
+            }
+        }
+    }
+    Group {
+        title: "Scheme style";
+        VerticalLayout {
+            padding-top: 8px;
+            spacing: 8px;
+            Select {
+                label: "Dynamic color variant";
+                items: [
+                    { text: "Tonal Spot", enabled: true }, { text: "Expressive", enabled: true }, { text: "Vibrant", enabled: true }, { text: "Fidelity", enabled: true }, { text: "Content", enabled: true },
+                    { text: "Rainbow", enabled: true }, { text: "Fruit Salad", enabled: true }, { text: "Neutral", enabled: true }, { text: "Monochrome", enabled: true },
+                ];
+                property <[string]> ids: ["tonal-spot", "expressive", "vibrant", "fidelity", "content", "rainbow", "fruit-salad", "neutral", "monochrome"];
+                current-index: Prefs.variant == "expressive" ? 1 : Prefs.variant == "vibrant" ? 2 : Prefs.variant == "fidelity" ? 3
+                    : Prefs.variant == "content" ? 4 : Prefs.variant == "rainbow" ? 5 : Prefs.variant == "fruit-salad" ? 6
+                    : Prefs.variant == "neutral" ? 7 : Prefs.variant == "monochrome" ? 8 : 0;
+                selected(i) => { Prefs.set-str("variant", self.ids[i]); }
+            }
+            T { text: Prefs.variant-desc; role: "body-small"; muted: true; wrap: word-wrap; }
+            Stack {
+                label: "Contrast";
+                Seg {
+                    items: [{ text: "Standard" }, { text: "Medium" }, { text: "High" }];
+                    current-index: Prefs.contrast == "medium" ? 1 : Prefs.contrast == "high" ? 2 : 0;
+                    index-changed(i) => { Prefs.set-str("contrast", i == 1 ? "medium" : i == 2 ? "high" : "standard"); }
+                }
+            }
+        }
+    }
+    Group {
+        title: "Layout";
+        Stack {
+            label: "Sidebar position";
+            Seg {
+                items: [{ text: "Left" }, { text: "Right" }];
+                current-index: Prefs.sidebar == "right" ? 1 : 0;
+                index-changed(i) => { Prefs.set-str("sidebar", i == 1 ? "right" : "left"); }
+            }
+        }
+        ToggleRow {
+            label: "Compact layout";
+            sub: "In narrow windows, use a scrollable weather page with a navigation bar instead of the map + sidebar.";
+            on: Prefs.compact;
+            toggled(v) => { Prefs.set-bool("compact", v); }
+        }
+        ToggleRow {
+            label: "Animated weather scene";
+            sub: "Show the current conditions as a gentle animation behind the temperature — sun, drifting clouds, rain, snow, fog and lightning.";
+            on: Prefs.weather-scene;
+            toggled(v) => { Prefs.set-bool("weatherScene", v); }
+        }
+    }
+}
+
+component WidgetsTab inherits VerticalLayout {
+    spacing: 20px;
+    Group {
+        title: "Home screen sections";
+        sub: "Show, hide, and reorder the sections below Current Conditions.";
+        for w[i] in Prefs.widgets: HorizontalLayout {
+            spacing: 12px;
+            min-height: 52px;
+            VerticalLayout {
+                alignment: center;
+                Toggle { checked: w.enabled; toggled(v) => { Prefs.set-bool("widget:" + w.id, v); } }
+            }
+            T { text: w.label; role: "body-large"; horizontal-stretch: 1; }
+            VerticalLayout { alignment: center; ToolButton { icon: "arrow_upward"; size: 36px; opacity: i == 0 ? 0.3 : 1; clicked => { if i > 0 { Prefs.move-widget(i, -1); } } } }
+            VerticalLayout { alignment: center; ToolButton { icon: "arrow_downward"; size: 36px; opacity: i == Prefs.widgets.length - 1 ? 0.3 : 1; clicked => { if i < Prefs.widgets.length - 1 { Prefs.move-widget(i, 1); } } } }
+        }
+    }
+    if Prefs.details-enabled: Group {
+        title: "Weather Details — fields";
+        sub: "Hide any info cards you don’t need.";
+        VerticalLayout {
+            padding-top: 8px;
+            padding-bottom: 8px;
+            spacing: 8px;
+            for row in ceil(Prefs.detail-fields.length / 3): HorizontalLayout {
+                spacing: 8px;
+                for k in [row * 3, row * 3 + 1, row * 3 + 2]: HorizontalLayout {
+                    horizontal-stretch: 1;
+                    if k < Prefs.detail-fields.length: Chip { text: Prefs.detail-fields[k].label; checked: Prefs.detail-fields[k].on; toggled(v) => { Prefs.set-bool("detail:" + Prefs.detail-fields[k].id, v); } }
+                }
+            }
+        }
+    }
+    if Prefs.aqi-enabled: Group {
+        title: "Air Quality widget";
+        ToggleRow { label: "Show pollutant breakdown"; on: Prefs.aqi-pollutants; toggled(v) => { Prefs.set-bool("aqiPollutants", v); } }
+    }
+}
+
+component RadarTab inherits VerticalLayout {
+    spacing: 20px;
+    Group {
+        title: "Map layer";
+        Stack {
+            label: "Active overlay";
+            Seg {
+                items: [{ text: "Radar", icon: "radar" }, { text: "Air quality", icon: "air" }];
+                current-index: Prefs.map-layer == "aqi" ? 1 : 0;
+                index-changed(i) => { Prefs.set-str("mapLayer", i == 1 ? "aqi" : "radar"); }
+            }
+        }
+        if Prefs.map-layer == "aqi": T { text: "A color gradient shows air quality across the map — green is clean, yellow/orange/red is increasing pollution. Click anywhere for exact AQI and pollutants."; role: "body-small"; muted: true; wrap: word-wrap; }
+    }
+    if Prefs.map-layer == "radar": Group {
+        title: "Radar source";
+        HorizontalLayout {
+            padding-top: 8px;
+            padding-bottom: 8px;
+            spacing: 12px;
+            Shape { name: "soft-burst"; size: 44px; fill: MaterialPalette.primary_container; Icon { x: 10px; y: 10px; name: "radar-fill"; tint: MaterialPalette.on_primary_container; } }
+            T { text: "LibreWXR — observed radar mosaic with a 90-minute nowcast (best over the US)."; wrap: word-wrap; horizontal-stretch: 1; }
+        }
+    }
+    if Prefs.map-layer == "radar": Group {
+        title: "Radar options";
+        Stack {
+            label: "Tile quality";
+            sub: Prefs.tile-quality == 256 ? "Fast — 256 px tiles, quicker, blurry when zoomed in" : "Sharp — 512 px tiles, full detail, slower to load";
+            Seg {
+                items: [{ text: "Fast" }, { text: "Sharp" }];
+                current-index: Prefs.tile-quality == 256 ? 0 : 1;
+                index-changed(i) => { Prefs.set-num("quality", i == 0 ? 256 : 512); }
+            }
+        }
+        Stack {
+            label: "Radar opacity";
+            sub: round(Prefs.opacity * 100) + "%";
+            Slider {
+                minimum: 10;
+                maximum: 100;
+                value: Prefs.opacity * 100;
+                enabled: true;
+                value-changed(v) => { Prefs.set-num("opacity", v / 100); }
+            }
+        }
+        for t in Prefs.radar-toggles: ToggleRow { label: t.label; on: t.on; toggled(v) => { Prefs.set-bool(t.id, v); } }
+    }
+    Group {
+        title: "Warnings";
+        ToggleRow {
+            label: "NWS warning polygons";
+            sub: "Active NWS warning polygons (US only). Click any polygon for full details.";
+            on: Prefs.polygons;
+            toggled(v) => { Prefs.set-bool("polygons", v); }
+        }
+        if Prefs.polygons: ToggleRow {
+            label: "Include advisories & statements";
+            sub: "Heat, fog, air quality, special statements and more. Zone-based (dashed outlines); slower on first use.";
+            on: Prefs.advisories;
+            toggled(v) => {
+                if v { Ui.advisory-confirm-open = true; } else { Prefs.set-bool("advisories", false); }
+            }
+        }
+    }
+    if Prefs.map-layer == "radar": Group {
+        title: "Color scheme";
+        VerticalLayout {
+            padding-top: 8px;
+            padding-bottom: 8px;
+            spacing: 8px;
+            for row in ceil(Prefs.radar-schemes.length / 3): HorizontalLayout {
+                spacing: 8px;
+                for k in [row * 3, row * 3 + 1, row * 3 + 2]: Rectangle {
+                    horizontal-stretch: 1;
+                    height: 60px;
+                    property <bool> active: k < Prefs.radar-schemes.length && Prefs.color-scheme == Prefs.radar-schemes[k].id;
+                    border-radius: (Feel.morph && sta.pressed) || self.active ? 22px : 14px;
+                    background: self.active ? MaterialPalette.secondary_container : MaterialPalette.surface_container_high;
+                    border-width: self.active ? 2px : 0;
+                    border-color: MaterialPalette.primary;
+                    visible: k < Prefs.radar-schemes.length;
+                    animate border-radius { duration: 300ms; easing: Motion.spring; }
+                    VerticalLayout {
+                        padding: 8px;
+                        spacing: 6px;
+                        Rectangle {
+                            height: 16px;
+                            border-radius: 8px;
+                            clip: true;
+                            HorizontalLayout {
+                                for c in (k < Prefs.radar-schemes.length ? Prefs.radar-schemes[k].stops : []): Rectangle { background: c; horizontal-stretch: 1; }
+                            }
+                        }
+                        T { text: k < Prefs.radar-schemes.length ? Prefs.radar-schemes[k].name : ""; role: "label-medium"; }
+                    }
+                    sta := PressFx {
+                        radius: parent.border-radius;
+                        clicked => { if k < Prefs.radar-schemes.length { Prefs.set-num("scheme", Prefs.radar-schemes[k].id); } }
+                    }
+                }
+            }
+        }
+    }
+}
+
+component AlertsTab inherits VerticalLayout {
+    spacing: 20px;
+    Rectangle {
+        border-radius: 28px;
+        background: Prefs.notifications ? MaterialPalette.primary_container : MaterialPalette.surface_container_high;
+        animate background { duration: 250ms; }
+        HorizontalLayout {
+            padding: 16px;
+            spacing: 16px;
+            Shape {
+                name: Prefs.notifications ? "sunny" : "circle";
+                size: 56px;
+                fill: Prefs.notifications ? MaterialPalette.primary : MaterialPalette.surface_container_highest;
+                Icon {
+                    x: 16px;
+                    y: 16px;
+                    name: Prefs.notifications ? "notifications_active-fill" : "notifications_off";
+                    tint: Prefs.notifications ? MaterialPalette.on_primary : MaterialPalette.on_surface_variant;
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                T { text: Prefs.notifications ? "Notifications enabled" : "Notifications off"; role: "title-medium"; }
+                T { text: Prefs.notifications ? "Alerts for your location arrive as system notifications while StormView runs." : "Get native desktop notifications for weather and air quality alerts."; role: "body-small"; wrap: word-wrap; }
+            }
+        }
+    }
+    Group {
+        title: "Desktop notifications";
+        ToggleRow { label: "Alert notifications"; on: Prefs.notifications; toggled(v) => { Prefs.set-bool("notifications", v); } }
+        if Prefs.notifications: ToggleRow { label: "NWS weather alerts"; sub: "Tornado, severe thunderstorm, flood warnings & more"; on: Prefs.notif-nws; toggled(v) => { Prefs.set-bool("notifNws", v); } }
+        if Prefs.notifications: ToggleRow { label: "Air quality alerts"; sub: "When AQI reaches Unhealthy (200+)"; on: Prefs.notif-aqi; toggled(v) => { Prefs.set-bool("notifAqi", v); } }
+        if Prefs.notifications: HorizontalLayout { padding-bottom: 8px; Btn { kind: "tonal"; text: "Send a test notification"; icon: "notifications"; clicked => { Prefs.test-notification(); } } }
+    }
+    Group {
+        title: "What you’ll receive";
+        VerticalLayout {
+            padding-top: 8px;
+            padding-bottom: 8px;
+            spacing: 4px;
+            for line in ["Tornado Warnings & Watches", "Severe Thunderstorm Warnings", "Flash Flood Warnings", "Winter Storm Warnings & Advisories", "All other active NWS alerts for your area"]: T { text: "•  " + line; }
+            T { text: "US coverage only — powered by the National Weather Service. Alerts are checked every 90 seconds."; role: "body-small"; muted: true; wrap: word-wrap; }
+        }
+    }
+}
+
+component AssistantTab inherits VerticalLayout {
+    spacing: 20px;
+    Group {
+        title: "Model provider";
+        sub: "Everything stays on your machine — StormView talks to a local model server.";
+        Stack {
+            label: "Run the assistant with";
+            Seg {
+                items: [{ text: "Ollama" }, { text: "OpenAI API" }];
+                current-index: Prefs.ai-provider == "openai" ? 1 : 0;
+                index-changed(i) => { Prefs.set-str("aiProvider", i == 1 ? "openai" : "ollama"); }
+            }
+        }
+        VerticalLayout {
+            spacing: 8px;
+            padding-bottom: 8px;
+            HorizontalLayout {
+                spacing: 8px;
+                url := TextField {
+                    horizontal-stretch: 1;
+                    label: "Server URL";
+                    text: Prefs.ai-url;
+                    accepted(t) => { Prefs.set-str("aiUrl", t); }
+                }
+                VerticalLayout { alignment: center; Btn { kind: "tonal"; text: "Connect"; clicked => { Prefs.set-str("aiUrl", url.text); } } }
+            }
+            if Prefs.ai-models.length > 0: Select {
+                label: "Model";
+                items: Prefs.ai-models;
+                current-index: Prefs.ai-model-index;
+                selected(i) => { Prefs.set-str("aiModel", Prefs.ai-models[i].text); }
+            }
+            if Prefs.ai-status != "": T { text: Prefs.ai-status; muted: true; wrap: word-wrap; }
+            if Prefs.ai-provider == "ollama": T { text: "No models? Install Ollama, then run “ollama pull llama3.2”."; role: "body-small"; muted: true; wrap: word-wrap; }
+            HorizontalLayout { alignment: start; Btn { kind: "text"; text: "Refresh models"; icon: "refresh"; clicked => { Prefs.refresh-models(); } } }
+        }
+    }
+}
+
+// ------------------------------------------------------------- sheet
+
+export component SettingsSheet inherits Rectangle {
+    in property <bool> left-side;
+    property <[{ label: string, icon: string }]> tabs: [
+        { label: "Location", icon: "location_on" },
+        { label: "Weather", icon: "partly_cloudy_day" },
+        { label: "Display", icon: "palette" },
+        { label: "Widgets", icon: "dashboard_customize" },
+        { label: "Radar", icon: "radar" },
+        { label: "Alerts", icon: "notifications" },
+        { label: "Assistant", icon: "smart_toy" },
+    ];
+    visible: Ui.settings-open || scrim.opacity > 0.01;
+
+    scrim := Rectangle {
+        background: #000;
+        opacity: Ui.settings-open ? 0.32 : 0;
+        animate opacity { duration: 250ms; }
+        TouchArea { clicked => { Ui.settings-open = false; } }
+    }
+
+    sheet := Rectangle {
+        width: min(480px, root.width);
+        x: root.left-side ? (Ui.settings-open ? 0 : -self.width - 24px) : (Ui.settings-open ? root.width - self.width : root.width + 24px);
+        animate x { duration: 480ms; easing: Motion.spring; }
+        background: MaterialPalette.surface_container_low;
+        border-top-left-radius: root.left-side ? 0 : 28px;
+        border-bottom-left-radius: root.left-side ? 0 : 28px;
+        border-top-right-radius: root.left-side ? 28px : 0;
+        border-bottom-right-radius: root.left-side ? 28px : 0;
+        drop-shadow-blur: 24px;
+        drop-shadow-color: #0000004d;
+        TouchArea { }
+        VerticalLayout {
+            HorizontalLayout {
+                padding: 16px;
+                padding-left: 24px;
+                T { text: "Settings"; role: "headline-small"; horizontal-stretch: 1; }
+                ToolButton { icon: "close"; clicked => { Ui.settings-open = false; } }
+            }
+            Rectangle {
+                height: 64px;
+                tabrow := HorizontalLayout {
+                    padding-left: 6px;
+                    padding-right: 6px;
+                    spacing: 0;
+                    for t[i] in root.tabs: tab := Rectangle {
+                        horizontal-stretch: 1;
+                        property <bool> active: Ui.settings-tab == i;
+                        VerticalLayout {
+                            alignment: center;
+                            spacing: 4px;
+                            HorizontalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 52px;
+                                    height: 32px;
+                                    border-radius: 16px;
+                                    background: tab.active ? MaterialPalette.secondary_container : transparent;
+                                    animate background { duration: 200ms; }
+                                    Icon { name: t.icon; size: 22px; tint: tab.active ? MaterialPalette.on_secondary_container : MaterialPalette.on_surface_variant; }
+                                }
+                            }
+                            Text {
+                                text: t.label;
+                                font-size: 12px;
+                                font-weight: tab.active ? 700 : 500;
+                                color: tab.active ? MaterialPalette.on_surface : MaterialPalette.on_surface_variant;
+                                horizontal-alignment: center;
+                            }
+                        }
+                        tta := PressFx { radius: 16px; clicked => { Ui.settings-tab = i; } }
+                    }
+                }
+            }
+            Rectangle { height: 1px; background: MaterialPalette.outline_variant; }
+            sv := ScrollView {
+                vertical-stretch: 1;
+                content-height: body.preferred-height;
+                body := VerticalLayout {
+                    width: sv.visible-width;
+                    padding: 20px;
+                    if Ui.settings-tab == 0: LocationTab { }
+                    if Ui.settings-tab == 1: WeatherTab { }
+                    if Ui.settings-tab == 2: DisplayTab { }
+                    if Ui.settings-tab == 3: WidgetsTab { }
+                    if Ui.settings-tab == 4: RadarTab { }
+                    if Ui.settings-tab == 5: AlertsTab { }
+                    if Ui.settings-tab == 6: AssistantTab { }
+                }
+            }
+            Rectangle { height: 1px; background: MaterialPalette.outline_variant; }
+            HorizontalLayout {
+                padding: 12px;
+                padding-left: 20px;
+                spacing: 10px;
+                VerticalLayout { alignment: center; Pill { text: "BETA"; fill: MaterialPalette.tertiary_container; ink: MaterialPalette.on_tertiary_container; } }
+                T { text: "StormView is in active development — bugs and missing features are expected."; role: "body-small"; muted: true; wrap: word-wrap; horizontal-stretch: 1; }
+                Btn { kind: "text"; text: "Report"; icon: "open_in_new"; clicked => { Prefs.open-url("https://github.com/arc360alt/StormView-Rewrite/issues"); } }
+            }
+        }
+    }
+}

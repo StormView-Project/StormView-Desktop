@@ -1,0 +1,4 @@
+target/
+legacy-tauri/node_modules/
+legacy-tauri/dist/
+legacy-tauri/src-tauri/target/

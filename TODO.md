@@ -1,0 +1,24 @@
+# TODO
+
+<!-- Add new issues here. Claude moves them to "Finished — please verify" when done and never rewrites this list. -->
+-
+
+## Fixed
+- Fix the top bar in the settings page not being clearly dragable and having no scroll bar
+- No pointer cursor on switches and segmented buttons → both are now StormView components with the pointer cursor (along with every other clickable element).
+- Dynamic color variant dropdown options all grayed out → the menu entries omitted `enabled`, which defaults to off in the Material menu. All 9 variants are now enabled.
+- Theme tab doesn't work (dropdown grayed out, swatches not clickable) → the swatch click area was being treated as a layout row, so it didn't cover the swatch. Each swatch is now one fully clickable cell. The variant dropdown is now a filled M3 field with a primary label and hover outline, so it no longer looks disabled.
+- Pill toolbar in the top right too bright → it's now a surface-container-high floating toolbar instead of primary-container.
+- Broken / missing ripple animations + option for the rounded press animation → the Material library buttons, segmented buttons and switches were replaced with StormView's own controls. They all share one press system: pointer cursor, state layer, and a ripple that always finishes (it's held visible for a minimum time, even on quick clicks). Hourly cards, 7-day rows, detail tiles, alert cards, settings tabs, swatches, radar schemes, toolbar, FAB and chat suggestions all use it now. New setting: **Settings → Display → Press animation: Shape morph / Ripple / Both** (Shape morph is the default).
+- Theme page colors on a downward slope → the swatch grid used a layout where each cell's height depended on its content, and one dark slice (secondary container) made each circle read as split on a diagonal. Swatches are now fixed-size cells, and each circle is rendered in Rust with primary/secondary/tertiary at the same tone, like Android's color picker.
+- Theme page colors on a downward slope → the swatch grid used a layout where each cell's height depended on its content, and one dark slice (secondary container) made each circle read as split on a diagonal. Swatches are now fixed-size cells, and each circle is rendered in Rust with primary/secondary/tertiary at the same tone, like Android's color picker.
+- Hourly strips hard to scroll / cards staying highlighted → the mouse wheel now scrolls the Hourly strip and the hours inside a 7-day row sideways, and hands the wheel back to the sidebar at either end. The highlight no longer sticks: press feedback now tracks its own pressed state and clears on release, drag movement, or the pointer leaving.
+- 7-day forecast dropdown should slide → the details panel now slides down (animated height, plus a fade). Alert cards slide open the same way.
+- Small circles in the temperature digits → the static Google Sans Flex cuts kept the variable font's overlapping contours, so the renderer drew seams where strokes met. The fonts were re-cut with overlap removal (fontTools + skia-pathops).
+- Icons with weird holes / pieces of other icons, different each restart → real cause found: to recolor an icon, Slint's GPU renderer (`colorize`) creates a new texture without clearing it, and on AMD/Mesa that memory still holds leftovers from earlier textures. `colorize` is no longer used anywhere: Rust tints each icon itself (the icon shape in the exact color), caches it, and hands Slint a finished image. The library widgets that colorized internally (text-field icons, context-menu icons, compact nav bar) were changed or replaced.
+- Open-Meteo pill in the sidebar header not centered → Slint layouts ignored the manual `y` centering. It, and about 25 other icons/pills/buttons in rows, are now centered with proper centering layouts.
+
+## Finished — please verify
+- Seams visible between radar squares → tiles were placed at fractional pixel positions with a half-pixel overlap, so where two see-through radar tiles overlapped, the color was drawn twice and left a faint line. Every map tile now snaps to whole pixels and meets its neighbour exactly, and the map layer itself moves in whole pixels.
+- Map freaking out / flashing while zooming → two causes. (1) The tile memory held 360 images, but a large window with radar playback preloading needed more, so tiles kept pushing each other out, re-downloading and pushing others out again, which showed as flashing. Base tiles now get their own larger cache, and the radar cache grows to fit everything on screen × the preload window. (2) When the zoom crossed a level, the old radar was dropped before the new level loaded, and zooming out had nothing to show at all. While a level loads, the map now shows a stretched version of the closest loaded level (parents when zooming in, up to 3 levels of children when zooming out) for both the base map and the radar.
+

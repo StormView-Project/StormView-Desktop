@@ -1,0 +1,691 @@
+import { MaterialPalette, ScrollView, TextField, MenuItem, CircularProgressIndicator } from "@material";
+import { WeatherScene } from "scene.slint";
+import { Prefs, Weather, Semantic, Tint, InfoTile, Ui, AlertItem, HourItem, DayItem, Bar, MonthRow } from "globals.slint";
+import { T, Icon, Shape, WidgetCard, Pill, InfoBlock, Meter, Motion, Select, Btn, PressFx, Feel, HScroll } from "common.slint";
+
+// ------------------------------------------------------------- hero
+
+export component Hero inherits Rectangle {
+    property <bool> scene: Prefs.weather-scene;
+    height: max(scene ? 212px : 0, hl.preferred-height);
+    border-radius: 28px;
+    clip: true;
+    if scene: WeatherScene { width: 100%; height: 100%; }
+    hl := VerticalLayout {
+        alignment: start;
+        padding: root.scene ? 18px : 8px;
+        padding-top: root.scene ? 14px : 12px;
+        spacing: 6px;
+        HorizontalLayout {
+            alignment: space-between;
+            HorizontalLayout {
+                alignment: start;
+                Text {
+                    text: Weather.temp;
+                    font-size: 104px;
+                    font-weight: 300;
+                    color: MaterialPalette.on_surface;
+                    letter-spacing: -4px;
+                    vertical-alignment: top;
+                }
+                Text {
+                    text: Weather.unit;
+                    font-size: 28px;
+                    font-weight: 500;
+                    color: MaterialPalette.on_surface_variant;
+                    vertical-alignment: top;
+                }
+            }
+            if !root.scene: Shape {
+                name: Weather.hero-shape;
+                size: 116px;
+                fill: Weather.hero-tint.container;
+                Icon {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    name: Weather.hero-icon;
+                    size: 56px;
+                    tint: Weather.hero-tint.on-container;
+                }
+            }
+        }
+        T { text: Weather.condition; role: "headline-small"; strong: true; }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            if Weather.feels != "": Pill { text: Weather.feels; fill: MaterialPalette.surface_container_highest; ink: MaterialPalette.on_surface; icon: "thermostat"; has-icon: true; height: 32px; }
+            if Weather.hi != "": Pill { text: Weather.hi; fill: MaterialPalette.surface_container_highest; ink: MaterialPalette.on_surface; icon: "arrow_upward"; has-icon: true; height: 32px; }
+            if Weather.lo != "": Pill { text: Weather.lo; fill: MaterialPalette.surface_container_highest; ink: MaterialPalette.on_surface; icon: "arrow_downward"; has-icon: true; height: 32px; }
+        }
+    }
+}
+
+// ------------------------------------------------------------- alerts
+
+component AlertCard inherits Rectangle {
+    in property <AlertItem> alert;
+    property <bool> open;
+    border-radius: open ? 24px : 18px;
+    background: alert.tint.container;
+    clip: true;
+    animate border-radius { duration: 300ms; easing: Motion.spring; }
+    VerticalLayout {
+        padding: 12px;
+        padding-left: 14px;
+        spacing: 0;
+        HorizontalLayout {
+            spacing: 8px;
+            Icon { name: "warning-fill"; size: 20px; tint: root.alert.tint.color; }
+            Text { text: root.alert.title; color: root.alert.tint.on-container; font-weight: 600; font-size: 14px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+            Pill { text: root.alert.severity; fill: root.alert.tint.color; ink: root.alert.tint.container; }
+            Icon {
+                name: "keyboard_arrow_down";
+                size: 20px;
+                tint: root.alert.tint.on-container;
+                transform-rotation: root.open ? 180deg : 0deg;
+                animate transform-rotation { duration: 300ms; easing: Motion.spring; }
+            }
+        }
+        // Slides open: the clip height animates from 0 to the content height.
+        Rectangle {
+            clip: true;
+            height: root.open ? alert-detail.preferred-height : 0;
+            animate height { duration: 380ms; easing: Motion.emphasized; }
+            alert-detail := VerticalLayout {
+                y: 0;
+                padding-top: 8px;
+                height: self.preferred-height;
+                opacity: root.open ? 1 : 0;
+                animate opacity { duration: 300ms; }
+                spacing: 8px;
+                if root.alert.until != "": Text { text: root.alert.until; color: root.alert.tint.on-container; font-size: 12px; font-weight: 500; }
+                if root.alert.description != "": Text { text: root.alert.description; color: root.alert.tint.on-container; font-size: 13px; wrap: word-wrap; }
+                if root.alert.instruction != "": Text { text: root.alert.instruction; color: root.alert.tint.on-container; font-size: 13px; font-weight: 600; wrap: word-wrap; }
+            }
+        }
+    }
+    PressFx { radius: root.border-radius; ink: root.alert.tint.on-container; clicked => { root.open = !root.open; } }
+}
+
+
+component AlertsWidget inherits WidgetCard {
+    title: "Active Alerts (" + Weather.alerts.length + ")";
+    icon: "warning";
+    for a in Weather.alerts: AlertCard { alert: a; }
+}
+
+// ------------------------------------------------------------- hourly
+
+component HourlyWidget inherits WidgetCard {
+    title: "Hourly";
+    icon: "schedule";
+    HScroll {
+        height: 176px;
+        content-w: row.preferred-width;
+        row := HorizontalLayout {
+            spacing: 6px;
+            for h[i] in Weather.hourly: cell := Rectangle {
+                width: 64px;
+                height: 168px;
+                border-radius: Feel.morph && ta.pressed ? 18px : 32px;
+                background: i == 0 ? MaterialPalette.primary_container : MaterialPalette.surface_container_low;
+                animate border-radius { duration: 300ms; easing: Motion.spring; }
+                property <color> ink: i == 0 ? MaterialPalette.on_primary_container : MaterialPalette.on_surface;
+                VerticalLayout {
+                    padding-top: 10px;
+                    padding-bottom: 10px;
+                    spacing: 6px;
+                    alignment: start;
+                    Text { text: h.label; color: cell.ink; font-size: 12px; font-weight: 600; horizontal-alignment: center; }
+                    HorizontalLayout { alignment: center; Icon { name: h.icon; size: 28px; tint: h.tint.color; } }
+                    Text { text: h.precip; color: Semantic.rain.color; font-size: 11px; font-weight: 600; horizontal-alignment: center; height: 14px; }
+                    Rectangle {
+                        height: 64px;
+                        Text {
+                            y: parent.height - self.height - h.lift * 40px;
+                            width: parent.width;
+                            text: h.temp;
+                            color: cell.ink;
+                            font-size: 16px;
+                            font-weight: 600;
+                            horizontal-alignment: center;
+                        }
+                    }
+                }
+                ta := PressFx { radius: cell.border-radius; ink: cell.ink; clicked => { Weather.open-hour(h.index); } }
+            }
+        }
+    }
+}
+
+// ------------------------------------------------------------- daily
+
+export component MiniTiles inherits VerticalLayout {
+    in property <[InfoTile]> tiles;
+    in property <color> fill: MaterialPalette.surface_container_low;
+    spacing: 8px;
+    for r in ceil(tiles.length / 2): HorizontalLayout {
+        spacing: 8px;
+        InfoBlock {
+            width: (root.width - 8px) / 2;
+            icon: root.tiles[r * 2].icon;
+            label: root.tiles[r * 2].label;
+            value: root.tiles[r * 2].value;
+            sub: root.tiles[r * 2].sub;
+            tint: root.tiles[r * 2].tint;
+            value-color: root.tiles[r * 2].has-value-color ? root.tiles[r * 2].value-color : MaterialPalette.on_surface;
+            clickable: root.tiles[r * 2].clickable;
+            fill: root.fill;
+            clicked => { if root.tiles[r * 2].key == "precip" { Weather.open-precip(); } }
+        }
+        if r * 2 + 1 < root.tiles.length: InfoBlock {
+            width: (root.width - 8px) / 2;
+            icon: root.tiles[r * 2 + 1].icon;
+            label: root.tiles[r * 2 + 1].label;
+            value: root.tiles[r * 2 + 1].value;
+            sub: root.tiles[r * 2 + 1].sub;
+            tint: root.tiles[r * 2 + 1].tint;
+            value-color: root.tiles[r * 2 + 1].has-value-color ? root.tiles[r * 2 + 1].value-color : MaterialPalette.on_surface;
+            clickable: root.tiles[r * 2 + 1].clickable;
+            fill: root.fill;
+            clicked => { if root.tiles[r * 2 + 1].key == "precip" { Weather.open-precip(); } }
+        }
+        if r * 2 + 1 >= root.tiles.length: Rectangle { width: (root.width - 8px) / 2; }
+    }
+}
+
+component DayRow inherits Rectangle {
+    in property <DayItem> day;
+    property <bool> open;
+    border-radius: open || (Feel.morph && hfx.pressed) ? 24px : 16px;
+    background: MaterialPalette.surface_container_low;
+    clip: true;
+    animate border-radius { duration: 300ms; easing: Motion.spring; }
+    VerticalLayout {
+        // The header keeps its exact size when the row opens, so it never jumps.
+        Rectangle {
+            height: 52px;
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 8px;
+                spacing: 6px;
+                T { text: root.day.name; role: "title-small"; width: 52px; }
+                VerticalLayout { alignment: center; Icon { name: root.day.icon; size: 24px; tint: root.day.tint.color; } }
+                Text { text: root.day.pop; width: 36px; color: Semantic.rain.color; font-size: 12px; font-weight: 600; vertical-alignment: center; }
+                T { text: root.day.lo; role: "title-small"; muted: true; width: 34px; horizontal-alignment: right; }
+                Rectangle {
+                    horizontal-stretch: 1;
+                    Rectangle {
+                        y: (parent.height - self.height) / 2;
+                        height: 8px;
+                        border-radius: 4px;
+                        background: MaterialPalette.surface_container_highest;
+                        Rectangle {
+                            x: parent.width * root.day.bar-left;
+                            width: parent.width * root.day.bar-width;
+                            border-radius: 4px;
+                            background: @linear-gradient(90deg, MaterialPalette.primary 0%, MaterialPalette.tertiary 100%);
+                        }
+                    }
+                }
+                T { text: root.day.hi; role: "title-small"; width: 34px; horizontal-alignment: right; }
+                VerticalLayout { alignment: center; Icon {
+                    name: "keyboard_arrow_down";
+                    size: 20px;
+                    tint: MaterialPalette.on_surface_variant;
+                    transform-rotation: root.open ? 180deg : 0deg;
+                    animate transform-rotation { duration: 300ms; easing: Motion.spring; }
+                } }
+            }
+            hfx := PressFx { radius: root.border-radius; clicked => { root.open = !root.open; } }
+        }
+        // Slides open: the clip height animates from 0 to the content height.
+        Rectangle {
+            clip: true;
+            height: root.open ? detail.preferred-height : 0;
+            animate height { duration: 380ms; easing: Motion.emphasized; }
+            detail := VerticalLayout {
+                y: 0;
+                height: self.preferred-height;
+                opacity: root.open ? 1 : 0;
+                animate opacity { duration: 300ms; }
+                padding: 12px;
+                padding-top: 0;
+                spacing: 10px;
+                T { text: "Hourly"; role: "label-large"; muted: true; }
+                if root.day.hours.length == 0: T { text: "No hourly data for this day"; role: "body-small"; muted: true; }
+                if root.day.hours.length > 0: HScroll {
+                    height: 104px;
+                    content-w: hrow.preferred-width;
+                    hrow := HorizontalLayout {
+                        spacing: 4px;
+                        for h in root.day.hours: Rectangle {
+                            width: 48px;
+                            border-radius: 24px;
+                            background: MaterialPalette.surface_container_highest;
+                            VerticalLayout {
+                                padding: 8px;
+                                spacing: 4px;
+                                Text { text: h.label; font-size: 11px; color: MaterialPalette.on_surface_variant; horizontal-alignment: center; }
+                                HorizontalLayout { alignment: center; Icon { name: h.icon; size: 20px; tint: h.tint.color; } }
+                                Text { text: h.precip; font-size: 11px; color: Semantic.rain.color; horizontal-alignment: center; }
+                                Text { text: h.temp; font-size: 14px; font-weight: 600; color: MaterialPalette.on_surface; horizontal-alignment: center; }
+                            }
+                        }
+                    }
+                }
+                if root.day.details.length > 0: T { text: "Details"; role: "label-large"; muted: true; }
+                MiniTiles { tiles: root.day.details; fill: MaterialPalette.surface_container_highest; }
+            }
+        }
+    }
+}
+
+component DailyWidget inherits WidgetCard {
+    title: Weather.day-count-title;
+    icon: "calendar_month";
+    VerticalLayout {
+        spacing: 4px;
+        for d in Weather.daily: DayRow { day: d; }
+    }
+}
+
+// ------------------------------------------------------------- simple widgets
+
+component SunWidget inherits WidgetCard {
+    title: "Sun";
+    icon: "wb_twilight";
+    HorizontalLayout {
+        spacing: 8px;
+        for item in [
+            { label: "Sunrise", value: Weather.sunrise, icon: "wb_twilight-fill", tint: Semantic.sun },
+            { label: "Sunset", value: Weather.sunset, icon: "bedtime-fill", tint: Semantic.sunset },
+        ]: Rectangle {
+            horizontal-stretch: 1;
+            border-radius: 20px;
+            background: item.tint.container;
+            HorizontalLayout {
+                padding: 14px;
+                spacing: 12px;
+                VerticalLayout { alignment: center; Icon { name: item.icon; size: 28px; tint: item.tint.on-container; } }
+                VerticalLayout {
+                    Text { text: item.label; color: item.tint.on-container; font-size: 12px; font-weight: 500; }
+                    Text { text: item.value; color: item.tint.on-container; font-size: 22px; }
+                }
+            }
+        }
+    }
+}
+
+component DetailsWidget inherits WidgetCard {
+    title: "Details";
+    icon: "info";
+    MiniTiles { tiles: Weather.details; }
+}
+
+component AqiWidget inherits WidgetCard {
+    title: "Air Quality";
+    icon: "air";
+    HorizontalLayout {
+        spacing: 14px;
+        Shape {
+            name: "soft-burst";
+            size: 68px;
+            fill: Weather.aqi-tint.container;
+            Text { width: parent.width; height: parent.height; text: Weather.aqi-value; color: Weather.aqi-tint.on-container; font-size: 22px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+        }
+        VerticalLayout {
+            alignment: center;
+            Text { text: Weather.aqi-label; color: Weather.aqi-tint.color; font-size: 16px; font-weight: 700; wrap: word-wrap; }
+            T { text: "US AQI"; role: "body-small"; muted: true; }
+        }
+    }
+    Meter { pct: Weather.aqi-pct; fill: Weather.aqi-tint.color; }
+    T { text: Weather.aqi-desc; muted: true; wrap: word-wrap; }
+    for r in ceil(Weather.aqi-pollutants.length / 2): HorizontalLayout {
+        spacing: 8px;
+        for k in [r * 2, r * 2 + 1]: Rectangle {
+            horizontal-stretch: 1;
+            height: 40px;
+            border-radius: 14px;
+            background: k < Weather.aqi-pollutants.length ? MaterialPalette.surface_container_low : transparent;
+            if k < Weather.aqi-pollutants.length: HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                T { text: Weather.aqi-pollutants[k].key; role: "body-small"; muted: true; horizontal-stretch: 1; }
+                T { text: Weather.aqi-pollutants[k].value; role: "label-large"; }
+            }
+        }
+    }
+}
+
+component WindWidget inherits WidgetCard {
+    title: "Wind";
+    icon: "air";
+    HorizontalLayout {
+        spacing: 20px;
+        Rectangle {
+            width: 124px;
+            height: 124px;
+            Shape { name: "12-sided-cookie"; size: 124px; fill: MaterialPalette.secondary_container; }
+            for d[i] in ["N", "E", "S", "W"]: Text {
+                text: d;
+                font-size: 11px;
+                font-weight: 700;
+                color: MaterialPalette.on_secondary_container;
+                x: parent.width / 2 + 44px * (i == 1 ? 1 : i == 3 ? -1 : 0) - self.width / 2;
+                y: parent.height / 2 + 44px * (i == 2 ? 1 : i == 0 ? -1 : 0) - self.height / 2;
+            }
+            Rectangle {
+                width: 100%;
+                height: 100%;
+                transform-rotation: (Weather.wind-deg + 180) * 1deg;
+                animate transform-rotation { duration: 700ms; easing: Motion.spring; }
+                Rectangle { x: parent.width / 2 - 2px; y: 26px; width: 4px; height: 36px; border-radius: 2px; background: MaterialPalette.primary; }
+                Path {
+                    x: parent.width / 2 - 8px;
+                    y: 14px;
+                    width: 16px;
+                    height: 16px;
+                    viewbox-width: 16;
+                    viewbox-height: 16;
+                    commands: "M 8 0 L 16 14 L 0 14 Z";
+                    fill: MaterialPalette.primary;
+                }
+                Rectangle { x: parent.width / 2 - 5px; y: parent.height / 2 - 5px; width: 10px; height: 10px; border-radius: 5px; background: MaterialPalette.primary; }
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            HorizontalLayout {
+                alignment: start;
+                Text { text: Weather.wind-speed; font-size: 36px; color: MaterialPalette.on_surface; }
+                Text { text: " " + Weather.wind-unit; font-size: 16px; color: MaterialPalette.on_surface_variant; vertical-alignment: bottom; }
+            }
+            T { text: Weather.wind-from; role: "title-small"; }
+            if Weather.wind-gusts != "": T { text: Weather.wind-gusts; muted: true; }
+        }
+    }
+}
+
+component FeelsWidget inherits WidgetCard {
+    title: "Feels Like";
+    icon: "thermostat";
+    HorizontalLayout {
+        spacing: 8px;
+        Rectangle {
+            horizontal-stretch: 1;
+            border-radius: 20px;
+            background: MaterialPalette.surface_container_low;
+            VerticalLayout { padding: 14px; T { text: "Actual"; role: "label-medium"; muted: true; } T { text: Weather.feels-actual; role: "headline-medium"; } }
+        }
+        Rectangle {
+            horizontal-stretch: 1;
+            border-radius: 20px;
+            background: MaterialPalette.primary_container;
+            VerticalLayout {
+                padding: 14px;
+                Text { text: "Feels like"; color: MaterialPalette.on_primary_container; font-size: 12px; font-weight: 500; }
+                Text { text: Weather.feels-value; color: MaterialPalette.on_primary_container; font-size: 28px; }
+            }
+        }
+    }
+    T { text: Weather.feels-desc; muted: true; wrap: word-wrap; }
+}
+
+export component Bars inherits HorizontalLayout {
+    in property <[Bar]> bars;
+    in property <length> track-height: 96px;
+    spacing: 6px;
+    for b in bars: VerticalLayout {
+        horizontal-stretch: 1;
+        spacing: 4px;
+        opacity: b.past ? 0.45 : 1;
+        Text { text: b.value; font-size: 11px; font-weight: 600; color: MaterialPalette.on_surface; horizontal-alignment: center; }
+        Rectangle {
+            height: root.track-height;
+            border-radius: 12px;
+            background: MaterialPalette.surface_container_low;
+            Rectangle {
+                y: parent.height - self.height;
+                height: parent.height * max(0.04, b.pct);
+                border-radius: 12px;
+                background: MaterialPalette.primary;
+                animate height { duration: 600ms; easing: Motion.spring; }
+            }
+        }
+        Text { text: b.label; font-size: 11px; color: MaterialPalette.on_surface_variant; horizontal-alignment: center; }
+        if b.amount != "": Text { text: b.amount; font-size: 10px; color: Semantic.rain.color; horizontal-alignment: center; }
+    }
+}
+
+component PrecipWidget inherits WidgetCard {
+    title: "Precipitation Outlook";
+    icon: "umbrella";
+    Bars { bars: Weather.precip-bars; }
+}
+
+component DaylightWidget inherits WidgetCard {
+    title: "Daylight";
+    icon: "clear_day";
+    T { text: Weather.daylight-total; role: "title-medium"; }
+    Rectangle {
+        height: 80px;
+        Path {
+            width: 100%;
+            height: 100%;
+            viewbox-width: 200;
+            viewbox-height: 80;
+            commands: "M 6 74 Q 100 -26 194 74";
+            stroke: MaterialPalette.surface_container_low;
+            stroke-width: 8px;
+            stroke-line-cap: round;
+        }
+        if Weather.is-daytime: Shape {
+            name: "sunny";
+            size: 24px;
+            fill: Semantic.sun.color;
+            // Quadratic Bézier from (6,74) via (100,-26) to (194,74), mapped to the element size.
+            property <float> t: Weather.daylight-pct;
+            x: parent.width * ((1 - t) * (1 - t) * 6 + 2 * (1 - t) * t * 100 + t * t * 194) / 200 - self.width / 2;
+            y: parent.height * ((1 - t) * (1 - t) * 74 + 2 * (1 - t) * t * (-26) + t * t * 74) / 80 - self.height / 2;
+        }
+    }
+    HorizontalLayout {
+        T { text: Weather.sunrise; role: "label-medium"; muted: true; }
+        T { text: Weather.daylight-note; role: "label-medium"; muted: true; horizontal-alignment: center; horizontal-stretch: 1; }
+        T { text: Weather.sunset; role: "label-medium"; muted: true; horizontal-alignment: right; }
+    }
+}
+
+component UvWidget inherits WidgetCard {
+    title: "UV Index";
+    icon: "sunny";
+    HorizontalLayout {
+        spacing: 12px;
+        alignment: start;
+        Text { text: Weather.uv-value; color: Weather.uv-tint.color; font-size: 36px; font-weight: 700; }
+        VerticalLayout { alignment: center; Pill { text: Weather.uv-label; fill: Weather.uv-tint.container; ink: Weather.uv-tint.on-container; } }
+    }
+    Meter { pct: Weather.uv-pct; fill: Weather.uv-tint.color; }
+    T { text: Weather.uv-tip; muted: true; wrap: word-wrap; }
+}
+
+component MoonWidget inherits WidgetCard {
+    title: "Moon Phase";
+    icon: "dark_mode";
+    HorizontalLayout {
+        spacing: 14px;
+        Rectangle {
+            width: 64px;
+            height: 64px;
+            border-radius: 32px;
+            clip: true;
+            background: MaterialPalette.tertiary_fixed;
+            Rectangle {
+                x: parent.width * Weather.moon-offset;
+                border-radius: 32px;
+                background: MaterialPalette.surface_container_lowest.with-alpha(0.94);
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            T { text: Weather.moon-name; role: "title-medium"; strong: true; }
+            T { text: Weather.moon-illum; muted: true; }
+        }
+    }
+}
+
+component OutlookWidget inherits WidgetCard {
+    title: "Today's Outlook";
+    icon: "lightbulb";
+    for tip in Weather.tips: Rectangle {
+        border-radius: 18px;
+        background: tip.tint.container;
+        HorizontalLayout {
+            padding: 12px;
+            padding-left: 14px;
+            spacing: 10px;
+            Icon { name: tip.icon; size: 22px; tint: tip.tint.on-container; }
+            Text { text: tip.text; color: tip.tint.on-container; font-size: 14px; font-weight: 500; vertical-alignment: center; }
+        }
+    }
+}
+
+component FutureWidget inherits WidgetCard {
+    title: "Future Weather";
+    icon: "event_upcoming";
+    T { text: "Pick a date up to ~7 months out (" + Weather.future-min-date + " – " + Weather.future-max-date + ")."; muted: true; wrap: word-wrap; }
+    HorizontalLayout {
+        spacing: 8px;
+        field := TextField {
+            horizontal-stretch: 1;
+            label: "Date (YYYY-MM-DD)";
+            text: Weather.future-min-date;
+            accepted(t) => { Weather.future-date(t); }
+        }
+        Btn { kind: "tonal"; text: "Look up"; clicked => { Weather.future-date(field.text); } }
+    }
+    if Weather.future-status == "loading": HorizontalLayout { spacing: 10px; CircularProgressIndicator { indeterminate: true; width: 24px; height: 24px; } T { text: "Loading outlook…"; muted: true; } }
+    if Weather.future-status == "error": T { text: "Couldn't load a forecast for that date."; color: MaterialPalette.error; }
+    if Weather.future-status == "empty": T { text: "No outlook data available for that date yet."; muted: true; }
+    if Weather.future-status == "ready": VerticalLayout {
+        spacing: 10px;
+        HorizontalLayout {
+            T { text: Weather.future-hi; role: "headline-small"; }
+            T { text: "  " + Weather.future-lo; role: "headline-small"; muted: true; horizontal-stretch: 1; }
+            if Weather.future-type != "": VerticalLayout { alignment: center; Pill { text: Weather.future-type; icon: Weather.future-type-icon; has-icon: true; fill: Weather.future-type-tint.container; ink: Weather.future-type-tint.on-container; } }
+        }
+        for kv in Weather.future-stats: Rectangle {
+            height: 40px;
+            border-radius: 14px;
+            background: MaterialPalette.surface_container_low;
+            HorizontalLayout { padding-left: 12px; padding-right: 12px; T { text: kv.key; muted: true; horizontal-stretch: 1; } T { text: kv.value; role: "label-large"; } }
+        }
+    }
+}
+
+component MonthWidget inherits WidgetCard {
+    title: "Month Outlook";
+    icon: "date_range";
+    T { text: "Long-range daily outlook for a whole month — a statistical estimate, not a precise forecast."; muted: true; wrap: word-wrap; }
+    Select {
+        label: "Month";
+        icon: "date_range";
+        has-icon: true;
+        items: Weather.month-items;
+        current-index: Weather.month-index;
+        selected(i) => { Weather.month-picked(i); }
+    }
+    if Weather.month-status == "loading": HorizontalLayout { spacing: 10px; CircularProgressIndicator { indeterminate: true; width: 24px; height: 24px; } T { text: "Loading month outlook…"; muted: true; } }
+    if Weather.month-status == "error": T { text: "Couldn't load that month."; color: MaterialPalette.error; }
+    if Weather.month-status == "empty": T { text: "No outlook data available for that month yet."; muted: true; }
+    if Weather.month-status == "ready": VerticalLayout {
+        spacing: 2px;
+        for r[i] in Weather.month-rows: Rectangle {
+            height: 40px;
+            border-radius: 12px;
+            background: r.flag ? MaterialPalette.tertiary_container : mod(i, 2) == 0 ? MaterialPalette.surface_container_low : transparent;
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 8px;
+                VerticalLayout { width: 40px; alignment: center; T { text: r.weekday; role: "label-small"; muted: true; } T { text: r.day; role: "title-small"; } }
+                T { text: r.hi; role: "title-small"; width: 40px; }
+                T { text: r.lo; muted: true; width: 40px; }
+                if r.has-icon: VerticalLayout { alignment: center; Icon { name: r.icon; size: 18px; tint: r.tint.color; } }
+                T { text: r.amount; role: "label-small"; horizontal-stretch: 1; }
+                if r.flag: VerticalLayout { alignment: center; Pill { text: "First snow"; fill: MaterialPalette.tertiary; ink: MaterialPalette.on_tertiary; } }
+            }
+        }
+    }
+}
+
+// ------------------------------------------------------------- content
+
+export component WeatherContent inherits VerticalLayout {
+    spacing: 12px;
+    if !Weather.has-location: VerticalLayout {
+        padding: 32px;
+        spacing: 16px;
+        alignment: center;
+        HorizontalLayout {
+            alignment: center;
+            Shape {
+                name: "pentagon";
+                size: 96px;
+                fill: MaterialPalette.tertiary_container;
+                Icon { x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; name: "location_on-fill"; size: 44px; tint: MaterialPalette.on_tertiary_container; }
+            }
+        }
+        T { text: "Set a location to see weather"; role: "title-large"; horizontal-alignment: center; }
+        HorizontalLayout {
+            alignment: center;
+            Btn {
+                text: "Choose location";
+                icon: "search";
+                clicked => { Ui.settings-tab = 0; Ui.settings-open = true; }
+            }
+        }
+    }
+    if Weather.has-location && !Weather.has-data: VerticalLayout {
+        padding: 48px;
+        spacing: 16px;
+        alignment: center;
+        if Weather.loading: HorizontalLayout { alignment: center; CircularProgressIndicator { indeterminate: true; width: 48px; height: 48px; } }
+        if !Weather.loading && Weather.error != "": T { text: Weather.error; wrap: word-wrap; horizontal-alignment: center; }
+        if !Weather.loading: HorizontalLayout { alignment: center; Btn { kind: "tonal"; text: "Try again"; icon: "refresh"; clicked => { Weather.refresh(); } } }
+    }
+    if Weather.has-location && Weather.has-data: VerticalLayout {
+        spacing: 12px;
+        if Weather.notice != "": Rectangle {
+            border-radius: 16px;
+            background: MaterialPalette.tertiary_container;
+            HorizontalLayout {
+                padding: 12px;
+                spacing: 8px;
+                Icon { name: "info"; size: 20px; tint: MaterialPalette.on_tertiary_container; }
+                Text { text: Weather.notice; color: MaterialPalette.on_tertiary_container; wrap: word-wrap; font-size: 13px; horizontal-stretch: 1; }
+            }
+        }
+        Hero { }
+        for id in Weather.widgets: VerticalLayout {
+            if id == "alerts" && Weather.alerts.length > 0: AlertsWidget { }
+            if id == "hourly" && Weather.hourly.length > 0: HourlyWidget { }
+            if id == "daily" && Weather.daily.length > 0: DailyWidget { }
+            if id == "sunrise" && Weather.sunrise != "": SunWidget { }
+            if id == "details": DetailsWidget { }
+            if id == "aqi" && Weather.has-aqi: AqiWidget { }
+            if id == "windCompass" && Weather.has-wind: WindWidget { }
+            if id == "feelsLike" && Weather.has-feels: FeelsWidget { }
+            if id == "precipOutlook": PrecipWidget { }
+            if id == "daylight" && Weather.has-daylight: DaylightWidget { }
+            if id == "uvIndex" && Weather.has-uv: UvWidget { }
+            if id == "moonPhase": MoonWidget { }
+            if id == "outlook": OutlookWidget { }
+            if id == "futureWeather": FutureWidget { }
+            if id == "monthOutlook": MonthWidget { }
+        }
+        T { text: Weather.updated; role: "label-small"; muted: true; horizontal-alignment: center; }
+    }
+}
