@@ -276,6 +276,12 @@ component DisplayTab inherits VerticalLayout {
             on: Prefs.weather-scene;
             toggled(v) => { Prefs.set-bool("weatherScene", v); }
         }
+        ToggleRow {
+            label: "Custom window frame";
+            sub: "Use a Material You title bar instead of your system's window frame. Turn this off if moving, resizing or snapping the window misbehaves.";
+            on: Prefs.custom-frame;
+            toggled(v) => { Prefs.set-bool("customFrame", v); }
+        }
     }
 }
 

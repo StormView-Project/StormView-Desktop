@@ -268,6 +268,8 @@ fn sync_prefs() {
             p.set_location_coords(format!("{:.4}, {:.4}", l.lat, l.lon).into());
         }
         a.global::<Ui>().set_press_style(s.press_style.clone().into());
+        a.global::<Ui>().set_custom_frame(s.custom_frame);
+        p.set_custom_frame(s.custom_frame);
         let r = a.global::<MapBridge>();
         r.set_radar_opacity(s.radar_opacity);
         r.set_radar_fade(s.radar_frame_fade);
@@ -808,6 +810,7 @@ fn set_bool(key: &str, v: bool) {
         match key {
             "compact" => s.compact_layout = v,
             "weatherScene" => s.weather_scene = v,
+            "customFrame" => s.custom_frame = v,
             "showNowcast" => { s.show_nowcast = v; frames = true; }
             "radarFrameFade" => s.radar_frame_fade = v,
             "radarSmooth" => { s.radar_smooth = v; radar = true; }
@@ -1191,6 +1194,56 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let app = AppWindow::new()?;
     app.global::<Shapes>().on_path(|name| shapes::path(&name).into());
+    // Custom window frame: the Material title bar hands moves and resizes to the OS.
+    {
+        use slint::winit_030::{winit::window::ResizeDirection, WinitWindowAccessor};
+        let ui = app.global::<Ui>();
+        let w = app.as_weak();
+        ui.on_window_drag(move || {
+            if let Some(a) = w.upgrade() {
+                a.window().with_winit_window(|ww| ww.drag_window().ok());
+            }
+        });
+        let w = app.as_weak();
+        ui.on_window_resize(move |edge| {
+            let dir = match edge.as_str() {
+                "n" => ResizeDirection::North,
+                "s" => ResizeDirection::South,
+                "e" => ResizeDirection::East,
+                "w" => ResizeDirection::West,
+                "ne" => ResizeDirection::NorthEast,
+                "nw" => ResizeDirection::NorthWest,
+                "se" => ResizeDirection::SouthEast,
+                _ => ResizeDirection::SouthWest,
+            };
+            if let Some(a) = w.upgrade() {
+                a.window().with_winit_window(|ww| ww.drag_resize_window(dir).ok());
+            }
+        });
+        let w = app.as_weak();
+        ui.on_window_minimize(move || {
+            if let Some(a) = w.upgrade() {
+                a.window().set_minimized(true);
+            }
+        });
+        let w = app.as_weak();
+        ui.on_window_maximize(move || {
+            if let Some(a) = w.upgrade() {
+                let m = !a.window().is_maximized();
+                a.window().set_maximized(m);
+                a.global::<Ui>().set_maximized(m);
+            }
+        });
+        ui.on_window_close(|| {
+            let _ = slint::quit_event_loop();
+        });
+        let w = app.as_weak();
+        ui.on_window_changed(move || {
+            if let Some(a) = w.upgrade() {
+                a.global::<Ui>().set_maximized(a.window().is_maximized());
+            }
+        });
+    }
     app.global::<IconStore>().on_get(|name, color| present::tinted(&name, color));
 
     let (lat, lon) = settings.location.as_ref().map(|l| (l.lat, l.lon)).unwrap_or((39.5, -98.35));

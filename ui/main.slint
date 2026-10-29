@@ -166,42 +166,84 @@ component AqiLegend inherits Rectangle {
     }
 }
 
-export component AppWindow inherits MaterialWindow {
-    title: "StormView";
-    icon: @image-url("app-icon.png");
-    preferred-width: 1440px;
-    preferred-height: 900px;
-    min-width: 380px;
-    min-height: 560px;
-    default-font-family: "Google Sans Flex Rounded";
-    in property <bool> dark;
-    callback zoom-settled(float);
-    init => { Palette.color-scheme = dark ? ColorScheme.dark : ColorScheme.light; keys.focus(); }
-    changed dark => { Palette.color-scheme = dark ? ColorScheme.dark : ColorScheme.light; }
+// ------------------------------------------------------------ window frame
+// Material You title bar, used when "Custom window frame" is on (the OS frame is
+// turned off). Drag it to move, double-click to maximize.
 
+component WinButton inherits Rectangle {
+    in property <string> icon;
+    in property <bool> danger;
+    callback clicked();
+    width: 44px;
+    height: 30px;
+    border-radius: Feel.morph && fx.pressed ? 8px : 15px;
+    animate border-radius { duration: 250ms; easing: Motion.spring; }
+    background: root.danger && fx.has-hover ? MaterialPalette.error : transparent;
+    animate background { duration: 150ms; }
+    Icon {
+        name: root.icon;
+        size: 18px;
+        tint: root.danger && fx.has-hover ? MaterialPalette.on_error : MaterialPalette.on_surface_variant;
+    }
+    fx := PressFx {
+        radius: root.border-radius;
+        ink: root.danger ? MaterialPalette.on_error : MaterialPalette.on_surface;
+        clicked => { root.clicked(); }
+    }
+}
+
+component TitleBar inherits Rectangle {
+    background: MaterialPalette.surface_container;
+    // Drag area first, so the buttons sit on top of it.
+    TouchArea {
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down && e.button == PointerEventButton.left { Ui.window-drag(); }
+        }
+        double-clicked => { Ui.window-maximize(); }
+    }
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 6px;
+        spacing: 10px;
+        VerticalLayout { alignment: center; Image { source: @image-url("app-icon.png"); width: 20px; height: 20px; } }
+        Text { text: "StormView"; font-size: 14px; font-weight: 700; color: MaterialPalette.on_surface; vertical-alignment: center; }
+        if Weather.has-location: Text {
+            text: Weather.location-name + (Weather.temp != "" ? " · " + Weather.temp + "°" : "");
+            font-size: 13px;
+            color: MaterialPalette.on_surface_variant;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        Rectangle { horizontal-stretch: 1; }
+        VerticalLayout { alignment: center; HorizontalLayout {
+            spacing: 2px;
+            WinButton { icon: "remove"; clicked => { Ui.window-minimize(); } }
+            WinButton { icon: Ui.maximized ? "filter_none" : "crop_square"; clicked => { Ui.window-maximize(); } }
+            WinButton { icon: "close"; danger: true; clicked => { Ui.window-close(); } }
+        } }
+    }
+}
+
+// Invisible grips along the edges for resizing the frameless window.
+component ResizeEdges inherits Rectangle {
+    property <length> e: 6px;
+    property <length> c: 14px;
+    TouchArea { x: root.c; y: 0; width: root.width - 2 * root.c; height: root.e; mouse-cursor: ns-resize; pointer-event(ev) => { if ev.kind == PointerEventKind.down { Ui.window-resize("n"); } } }
+    TouchArea { x: root.c; y: root.height - root.e; width: root.width - 2 * root.c; height: root.e; mouse-cursor: ns-resize; pointer-event(ev) => { if ev.kind == PointerEventKind.down { Ui.window-resize("s"); } } }
+    TouchArea { x: 0; y: root.c; width: root.e; height: root.height - 2 * root.c; mouse-cursor: ew-resize; pointer-event(ev) => { if ev.kind == PointerEventKind.down { Ui.window-resize("w"); } } }
+    TouchArea { x: root.width - root.e; y: root.c; width: root.e; height: root.height - 2 * root.c; mouse-cursor: ew-resize; pointer-event(ev) => { if ev.kind == PointerEventKind.down { Ui.window-resize("e"); } } }
+    TouchArea { x: 0; y: 0; width: root.c; height: root.c; mouse-cursor: nwse-resize; pointer-event(ev) => { if ev.kind == PointerEventKind.down { Ui.window-resize("nw"); } } }
+    TouchArea { x: root.width - root.c; y: root.height - root.c; width: root.c; height: root.c; mouse-cursor: nwse-resize; pointer-event(ev) => { if ev.kind == PointerEventKind.down { Ui.window-resize("se"); } } }
+    TouchArea { x: root.width - root.c; y: 0; width: root.c; height: root.c; mouse-cursor: nesw-resize; pointer-event(ev) => { if ev.kind == PointerEventKind.down { Ui.window-resize("ne"); } } }
+    TouchArea { x: 0; y: root.height - root.c; width: root.c; height: root.c; mouse-cursor: nesw-resize; pointer-event(ev) => { if ev.kind == PointerEventKind.down { Ui.window-resize("sw"); } } }
+}
+
+// Everything below the title bar.
+component Body inherits Rectangle {
     property <bool> compact: Prefs.compact && self.width < 760px;
     property <bool> left: Prefs.sidebar != "right";
     property <length> side-w: self.width < 1100px ? 360px : 400px;
     property <length> gap: 12px;
-
-    forward-focus: keys;
-    keys := FocusScope {
-        key-pressed(e) => {
-            if (e.modifiers.control && e.text == ",") || e.text == Key.F2 { Ui.settings-open = !Ui.settings-open; return accept; }
-            if e.text == Key.F3 && Ui.settings-open { Ui.settings-tab = mod(Ui.settings-tab + 1, 7); return accept; }
-            if e.modifiers.control && e.text == Key.Tab && Ui.settings-open {
-                Ui.settings-tab = mod(Ui.settings-tab + (e.modifiers.shift ? 6 : 1), 7);
-                return accept;
-            }
-            if e.text == " " { Radar.toggle-play(); return accept; }
-            if e.text == "+" || e.text == "=" { MapBridge.zoom(1, -1, -1); return accept; }
-            if e.text == "-" { MapBridge.zoom(-1, -1, -1); return accept; }
-            if e.text == Key.LeftArrow { Radar.seek(max(0, Radar.index - 1)); return accept; }
-            if e.text == Key.RightArrow { Radar.seek(min(Radar.count - 1, Radar.index + 1)); return accept; }
-            if e.text == Key.Escape { Ui.settings-open = false; Ui.assistant-open = false; return accept; }
-            reject
-        }
-    }
 
     MapView { }
 
@@ -466,4 +508,48 @@ export component AppWindow inherits MaterialWindow {
         animate opacity { duration: 200ms; }
         Text { x: 16px; width: parent.width - 32px; text: Ui.toast; color: MaterialPalette.inverse_on_surface; font-size: 14px; vertical-alignment: center; overflow: elide; }
     }
+}
+
+export component AppWindow inherits MaterialWindow {
+    title: "StormView";
+    icon: @image-url("app-icon.png");
+    preferred-width: 1440px;
+    preferred-height: 900px;
+    min-width: 380px;
+    min-height: 560px;
+    default-font-family: "Google Sans Flex Rounded";
+    in property <bool> dark;
+    callback zoom-settled(float);
+    init => { Palette.color-scheme = dark ? ColorScheme.dark : ColorScheme.light; keys.focus(); }
+    changed dark => { Palette.color-scheme = dark ? ColorScheme.dark : ColorScheme.light; }
+
+    no-frame: Ui.custom-frame;
+    property <length> bar-h: Ui.custom-frame ? 40px : 0;
+    changed width => { Ui.window-changed(); }
+    changed height => { Ui.window-changed(); }
+
+    forward-focus: keys;
+    keys := FocusScope {
+        key-pressed(e) => {
+            if (e.modifiers.control && e.text == ",") || e.text == Key.F2 { Ui.settings-open = !Ui.settings-open; return accept; }
+            if e.text == Key.F3 && Ui.settings-open { Ui.settings-tab = mod(Ui.settings-tab + 1, 7); return accept; }
+            if e.modifiers.control && e.text == Key.Tab && Ui.settings-open {
+                Ui.settings-tab = mod(Ui.settings-tab + (e.modifiers.shift ? 6 : 1), 7);
+                return accept;
+            }
+            if e.text == " " { Radar.toggle-play(); return accept; }
+            if e.text == "+" || e.text == "=" { MapBridge.zoom(1, -1, -1); return accept; }
+            if e.text == "-" { MapBridge.zoom(-1, -1, -1); return accept; }
+            if e.text == Key.LeftArrow { Radar.seek(max(0, Radar.index - 1)); return accept; }
+            if e.text == Key.RightArrow { Radar.seek(min(Radar.count - 1, Radar.index + 1)); return accept; }
+            if e.text == Key.Escape { Ui.settings-open = false; Ui.assistant-open = false; return accept; }
+            reject
+        }
+    }
+
+    if Ui.custom-frame: TitleBar { y: 0; width: root.width; height: root.bar-h; }
+    Body { y: root.bar-h; width: root.width; height: root.height - root.bar-h; }
+    // Hairline outline so the frameless window still reads as a window.
+    if Ui.custom-frame && !Ui.maximized: Rectangle { border-width: 1px; border-color: MaterialPalette.outline_variant; }
+    if Ui.custom-frame && !Ui.maximized: ResizeEdges { }
 }

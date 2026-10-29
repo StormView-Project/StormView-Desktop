@@ -373,6 +373,7 @@ export global Prefs {
     in property <string> sidebar;
     in property <bool> compact;
     in property <bool> weather-scene;
+    in property <bool> custom-frame;
     in property <string> weather-api;
     in property <string> units;
     in property <string> map-layer;
@@ -420,6 +421,15 @@ export global Prefs {
 export global Ui {
     // "morph" (M3 Expressive shape change), "ripple", or "both".
     in property <string> press-style: "morph";
+    // Custom Material title bar instead of the OS frame.
+    in property <bool> custom-frame;
+    in property <bool> maximized;
+    callback window-drag();
+    callback window-resize(string);
+    callback window-minimize();
+    callback window-maximize();
+    callback window-close();
+    callback window-changed();
     in-out property <bool> settings-open;
     in-out property <int> settings-tab;
     in-out property <bool> assistant-open;

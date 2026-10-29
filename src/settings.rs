@@ -58,6 +58,7 @@ pub struct Settings {
     // Layout
     pub sidebar_position: String, // left | right
     pub compact_layout: bool,
+    pub custom_frame: bool, // Material title bar instead of the OS window frame
     // Widgets
     pub widgets: Vec<WidgetPref>,
     pub details_fields: Vec<String>, // hidden detail fields
@@ -106,6 +107,7 @@ impl Default for Settings {
             weather_scene: true,
             sidebar_position: "left".into(),
             compact_layout: true,
+            custom_frame: true,
             widgets: WIDGET_IDS
                 .iter()
                 .map(|(id, _)| WidgetPref { id: id.to_string(), enabled: default_on.contains(id) })
